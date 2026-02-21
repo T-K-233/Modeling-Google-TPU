@@ -2,15 +2,17 @@ from pathlib import Path
 
 import torch
 
-from instruction import IsaSpec
-from parser import BundleParser
-from arch_state import ArchState
-import isa  # noqa: F401
+from .instruction import IsaSpec
+from .parser import BundleParser
+from .arch_state import ArchState
+from . import isa  # noqa: F401
 
 
 class Simulator:
-    def __init__(self):
-        self.state = ArchState()
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+
+        self.state = ArchState(verbose=verbose)
         self.cycles = 0
         self.max_cycles = 1000000
 
@@ -18,9 +20,10 @@ class Simulator:
         parser = BundleParser()
         self.symbol_table, self.program = parser.parse_program(program_path)
 
-        print("Symbol table:")
-        for name, value in self.symbol_table.items():
-            print(f"  {name}: {value}")
+        if self.verbose:
+            print("Symbol table:")
+            for name, value in self.symbol_table.items():
+                print(f"  {name}: {value}")
 
     def load_program_data(self, symbol_values: dict[str, torch.Tensor]):
         for symbol, value in symbol_values.items():
@@ -30,6 +33,8 @@ class Simulator:
             match self.symbol_table[symbol].space:
                 case "hbm":
                     self.state.write_hbm(self.symbol_table[symbol].base_address, value)
+                case "vmem":
+                    self.state.write_vmem(self.symbol_table[symbol].base_address, value)
                 case "smem":  # scalar
                     self.state.write_smem(self.symbol_table[symbol].base_address, value)
                 case _:
@@ -38,7 +43,8 @@ class Simulator:
     def run(self):
         while True:
             if self.state.pc > max(self.program.keys()):
-                print(f"Reached end of program at PC={hex(self.state.pc)}")
+                if self.verbose:
+                    print(f"Reached end of program at PC={hex(self.state.pc)}")
                 break
 
             if self.cycles >= self.max_cycles:
@@ -56,7 +62,8 @@ class Simulator:
                     print(f"WARNING: Unknown opcode: {opcode} {uop.dest_reg} {uop.args}, skipping instruction")
                     continue
 
-                print(f">>> {opcode} \033[94m{uop.dest_reg if uop.dest_reg else '_'}, {uop.args}\033[0m")
+                if self.verbose:
+                    print(f">>> {opcode} \033[94m{uop.dest_reg if uop.dest_reg else '_'}, {uop.args}\033[0m")
                 IsaSpec.operations[opcode].apply_effect(self.state, uop.dest_reg, uop.args)
 
             self.state.next_pc = self.state.pc + 1

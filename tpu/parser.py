@@ -23,8 +23,10 @@ class Allocation:
 class BundleParser:
     """Parse TPU compiler bundle dump files into instruction bundles."""
 
-    # Matches instruction starts like "0xa   :  { %94 = ..." or multiline "0x3   :  { %12 = ..."
-    _INSTRUCTION_START_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+|\d+)\s*:\s*(\{.*)$")
+    # Matches instruction starts: "0xa   :  { ..." or "0xb LB: > { ..." or "0xc   : > { ..."
+    _INSTRUCTION_START_RE = re.compile(
+        r"^\s*(0x[0-9a-fA-F]+|\d+)\s*[^\{]*(\{.*)$"
+    )
     # Matches: #allocation0 [shape = '...', space=vmem, size = 0x2000, ...] (stack3)
     _ALLOCATION_RE = re.compile(
         r"^\s*(#allocation\d+)\s+\[.*?space\s*=\s*(\w+).*?size\s*=\s*(0x[0-9a-fA-F]+|\d+).*?\]"
@@ -246,6 +248,15 @@ class BundleParser:
         alloc_match = re.search(r"\[(#allocation\d+)\]", seg)
         if alloc_match:
             return alloc_match.group(1)
+        # [#allocationN + $0xM] or [#allocationN + $M]
+        alloc_offset_match = re.search(
+            r"\[(#allocation\d+)\s*\+\s*\$?(?:0x([0-9a-fA-F]+)|(\d+))\]", seg
+        )
+        if alloc_offset_match:
+            alloc_id = alloc_offset_match.group(1)
+            hex_off, dec_off = alloc_offset_match.group(2), alloc_offset_match.group(3)
+            offset_int = int(hex_off, 16) if hex_off else int(dec_off)
+            return f"{alloc_id}+{offset_int}"
         if re.match(r"^\$0x[0-9a-fA-F]+$", seg) or seg in ("$0",):
             return seg
         return ""
@@ -269,8 +280,10 @@ class BundleParser:
 
     def _parse_one_instruction(self, instr_str: str) -> Instruction | None:
         """Parse a single instruction '%dest = opcode args...' into dest_reg, opcode, args."""
-        instr_str = instr_str.strip().lstrip("{").strip().removesuffix(" }").strip()
+        instr_str = instr_str.strip().lstrip("> {").strip().removesuffix(" }").strip()
         instr_str = instr_str.rstrip()
+        if not instr_str:
+            return None
         if instr_str.endswith("*/"):
             last_close = instr_str.rfind("*/")
             last_open = instr_str.rfind("/*", 0, last_close)
