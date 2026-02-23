@@ -6,6 +6,31 @@ from .instruction import instr
 from .arch_state import ArchState
 
 
+@instr("inlined_call_operand.hbm")
+def inlined_call_operand_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Load HBM base address (in granule index, 16-byte units) for an inlined call operand.
+
+    The parser populates args with the byte address; we store byte_addr // 16
+    since subsequent sshll.u32 by 4 expects granule index.
+    """
+    byte_addr, = params
+    state.write_xreg(dest_reg, int(byte_addr))
+
+
+@instr("inlined_call_operand.vmem")
+def inlined_call_operand_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Load VMEM base address for an inlined call operand."""
+    byte_addr, = params
+    state.write_xreg(dest_reg, int(byte_addr))
+
+
+@instr("inlined_call_operand.<no memory space>")
+def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Load SMEM base address (in granule index, 16-byte units) for an inlined call operand."""
+    byte_addr, = params
+    state.write_xreg(dest_reg, int(byte_addr))
+
+
 @instr("vsyncpa")
 def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
     addr, value = params
@@ -26,7 +51,6 @@ def vsyncadd(state: ArchState, _: str, params: dict[str, Any]):
 def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
     src_addr_reg, = params
     addr = state.read_xreg(src_addr_reg)
-    addr = addr
     state.write_xreg(dest_reg, addr)
 
 
@@ -34,7 +58,6 @@ def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
 def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
     src_addr_reg, = params
     addr = state.read_xreg(src_addr_reg)
-    addr = addr >> 4  # not sure why
     state.write_xreg(dest_reg, addr)
 
 
@@ -42,12 +65,15 @@ def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
 def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
     src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params
     state.write_sflag(int(sync_flag), 1)
-    src_addr = state.read_xreg(src_addr_reg)
-    dest_addr = state.read_xreg(dest_addr_reg)
 
-    # not sure why size_in_bytes = size_in_granules * 32
-    # but this ratio is observed from DMA transfer instructions
-    size = int(size_in_granules) * 32
+    src_addr_granules = state.read_xreg(src_addr_reg)
+    dest_addr_granules = state.read_xreg(dest_addr_reg)
+
+    # TODO: not sure why need to divide by 16
+    src_addr = src_addr_granules >> 4
+    dest_addr = dest_addr_granules >> 4
+    # TODO: not sure why need to multiply by 32
+    size = int(size_in_granules) << 5
     state.write_vmem(dest_addr, state.read_hbm(src_addr, size))
 
 
@@ -55,12 +81,15 @@ def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
 def dma_vmem_to_hbm(state: ArchState, _: str, params: dict[str, Any]):
     src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params
     state.write_sflag(int(sync_flag), 1)
-    src_addr = state.read_xreg(src_addr_reg)
-    dest_addr = state.read_xreg(dest_addr_reg)
 
-    # not sure why size_in_bytes = size_in_granules * 32
-    # but this ratio is observed from DMA transfer instructions
-    size = int(size_in_granules) * 32
+    src_addr_granules = state.read_xreg(src_addr_reg)
+    dest_addr_granules = state.read_xreg(dest_addr_reg)
+
+    # TODO: not sure why need to divide by 16
+    src_addr = src_addr_granules >> 4
+    dest_addr = dest_addr_granules >> 4
+    # TODO: not sure why need to multiply by 32
+    size = int(size_in_granules) << 5
     state.write_hbm(dest_addr, state.read_vmem(src_addr, size))
 
 
@@ -72,7 +101,6 @@ def dma_done_wait(state: ArchState, dest_reg: str, params: dict[str, Any]):
     sync_flag, size_in_granules = params
     sflag_value = state.read_sflag(int(sync_flag))
     # print(f"  SFlag value at address {sync_flag}: {sflag_value}")
-    state.write_sflag(int(sync_flag), 0)
 
 
 @instr("sshll.u32")
@@ -87,35 +115,6 @@ def smov(state: ArchState, dest_reg: str, params: dict[str, Any]):
     address, = params
     address = int(address, 16) if address.startswith("0x") else int(address)
     state.write_xreg(dest_reg, address)
-
-
-@instr("inlined_call_operand.hbm")
-def inlined_call_operand_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    """Load HBM base address (in granule index, 16-byte units) for an inlined call operand.
-
-    The parser populates args with the byte address; we store byte_addr // 16
-    since subsequent sshll.u32 by 4 expects granule index.
-    """
-    byte_addr, = params
-    granule_idx = int(byte_addr) // 16
-    state.write_xreg(dest_reg, granule_idx)
-
-
-@instr("inlined_call_operand.vmem")
-def inlined_call_operand_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    """Placeholder for scalar operands (e.g. f32[]) - store value 0; host supplies data."""
-    byte_addr, = params
-    # granule_idx = int(byte_addr) // 16
-    granule_idx = int(byte_addr)
-    state.write_xreg(dest_reg, granule_idx)
-
-
-@instr("inlined_call_operand.<no memory space>")
-def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    """Placeholder for scalar operands (e.g. f32[]) - store value 0; host supplies data."""
-    byte_addr, = params
-    granule_idx = int(byte_addr) // 16
-    state.write_xreg(dest_reg, granule_idx)
 
 
 @instr("vstv")
@@ -146,7 +145,7 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
         reg_val = state.read_xreg(reg.strip())
         offset = offset.strip()
         offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
-        offset_val *= 32
+        offset_val = offset_val << 2  # TODO: not sure why need to multiply by 4
     elif reg_or_offset.startswith("s"):
         reg_val = state.read_xreg(reg_or_offset)
     else:
@@ -213,33 +212,114 @@ def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vmatpush.msra.mxu0")
 def vmatpush_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     src_vreg, = params
-    state.push_mxu0_weight(state.read_vreg(src_vreg, dtype=torch.float32))
+    state.push_mxu_weight("mxu0", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.msra.mxu1")
+def vmatpush_msra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight("mxu1", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.msra.mxu2")
+def vmatpush_msra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight("mxu2", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.msra.mxu3")
+def vmatpush_msra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight("mxu3", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.xpose.msra.mxu0")
 def vmatpush_xpose_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     src_vreg, = params
-    state.push_mxu0_weight_transpose(state.read_vreg(src_vreg, dtype=torch.float32))
+    state.push_mxu_weight_transpose("mxu0", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.bf16.xpose.msra.mxu0")
 def vmatpush_bf16_xpose_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     src_vreg, = params
-    state.push_mxu0_weight_transpose(state.read_vreg(src_vreg, dtype=torch.bfloat16))
+    state.push_mxu_weight_transpose("mxu0", state.read_vreg(src_vreg, dtype=torch.bfloat16))
+
+
+@instr("vmatmul.f32.gmra.mxu0")
+def vmatmul_f32_gmra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu0", activation)
+
+
+@instr("vmatmul.f32.gmra.mxu1")
+def vmatmul_f32_gmra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu1", activation)
+
+
+@instr("vmatmul.f32.gmra.mxu2")
+def vmatmul_f32_gmra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu2", activation)
+
+
+@instr("vmatmul.f32.gmra.mxu3")
+def vmatmul_f32_gmra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu3", activation)
 
 
 @instr("vmatmul.f32.vlgmr.msra.gmra.mxu0")
 def vmatmul_f32_vlgmr_msra_gmra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     src_vreg, = params
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
-    state.mxu0_accumulator[:] = 0
-    # C = A @ B: activation (8,128) @ weight (128,8) = (8,8); use first 8 columns of buffer
-    state.mxu0_accumulator[0:state.num_sublanes, 0:state.num_sublanes] += (
-        activation @ state.mxu0_weight_buffer[:, 0:state.num_sublanes]
-    )
+    state.execute_mxu_matmul("mxu0", activation)
+
+
+@instr("vmatmul.f32.vlgmr.msra.gmra.mxu1")
+def vmatmul_f32_vlgmr_msra_gmra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu1", activation)
+
+
+@instr("vmatmul.f32.vlgmr.msra.gmra.mxu2")
+def vmatmul_f32_vlgmr_msra_gmra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu2", activation)
+
+
+@instr("vmatmul.f32.vlgmr.msra.gmra.mxu3")
+def vmatmul_f32_vlgmr_msra_gmra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    state.execute_mxu_matmul("mxu3", activation)
 
 
 @instr("vpop.f32.mrf.mxu0")
 def vpop_f32_mrf_mxu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    result = state.pop_mxu0_accumulator()
+    result = state.pop_mxu_accumulator("mxu0")
+    state.write_vreg(dest_reg, result)
+
+
+@instr("vpop.f32.mrf.mxu1")
+def vpop_f32_mrf_mxu1(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    result = state.pop_mxu_accumulator("mxu1")
+    state.write_vreg(dest_reg, result)
+
+
+@instr("vpop.f32.mrf.mxu2")
+def vpop_f32_mrf_mxu2(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    result = state.pop_mxu_accumulator("mxu2")
+    state.write_vreg(dest_reg, result)
+
+
+@instr("vpop.f32.mrf.mxu3")
+def vpop_f32_mrf_mxu3(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    result = state.pop_mxu_accumulator("mxu3")
     state.write_vreg(dest_reg, result)

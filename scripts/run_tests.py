@@ -33,12 +33,12 @@ class TpuTests(unittest.TestCase):
             )
             self.fail(msg)
 
-    def test_simple_vector_add(self):
+    def test_vector_add_simple(self):
         operand_a = torch.ones(8, 128, dtype=torch.float32) * 2
         operand_b = torch.ones(8, 128, dtype=torch.float32)
 
         self.sim.load_program(
-            "./tests/simple_vector_add/tpu_compiler_dump/llo/1771656547132443545-vadd"
+            "./tests/vector_add_simple/tpu_compiler_dump/llo/1771656547132443545-vadd"
         )
         self.sim.load_program_data({
             "#operand0": operand_a,
@@ -102,17 +102,18 @@ class TpuTests(unittest.TestCase):
 
         self._check_result(result, golden_result, self.BF16_RTOL, self.BF16_ATOL)
 
-    def test_matmul(self):
+    def test_matmul_simple(self):
         """Matmul C = A @ B with A (8,128), B (128,8) -> C (8,8). Refs scripts/run.py."""
         a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128)
         b = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(128, 8)
+        b_tiled = b.reshape(16, 8, 8).permute(1, 0, 2).reshape(8, 128).contiguous()
 
         self.sim.load_program(
-            "./tests/matmul/tpu_compiler_dump/llo/1771659663124722556-matmul"
+            "./tests/matmul_simple/tpu_compiler_dump/llo/1771659663124722556-matmul"
         )
         self.sim.load_program_data({
             "#operand0": a,
-            "#operand1": b,
+            "#operand1": b_tiled,
         })
         self.sim.run()
 

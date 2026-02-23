@@ -23,6 +23,8 @@ class ArchState:
         self.num_sublanes = 8
         self.vreg_size = self.num_lanes * self.num_sublanes * torch.float32.itemsize
 
+        self.matrix_units = ["mxu0", "mxu1", "mxu2", "mxu3"]
+
         self.initialize_buffers()
 
     def initialize_buffers(self) -> None:
@@ -42,8 +44,11 @@ class ArchState:
                 dtype=torch.uint8,
             )
 
-        self.mxu0_weight_buffer = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
-        self.mxu0_accumulator = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
+        self.weight_buffer: dict[str, torch.Tensor] = {}
+        self.accumulator: dict[str, torch.Tensor] = {}
+        for mxu in self.matrix_units:
+            self.weight_buffer[mxu] = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
+            self.accumulator[mxu] = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
 
     def read_xreg(self, src: str) -> int:
         return self.xreg[src]
@@ -86,21 +91,34 @@ class ArchState:
     def write_sflag(self, address: int, value: int) -> None:
         self.sflag.write(address, torch.tensor([value], dtype=torch.uint32).view(torch.uint8))
 
-    def push_mxu0_weight(self, weight: torch.Tensor) -> None:
+    def push_mxu_weight(self, mxu: str, weight: torch.Tensor) -> None:
+        # assert weight.shape[0:2] == (self.num_sublanes, self.num_lanes)
+        # # roll columns to the right
+        # self.weight_buffer[mxu] = self.weight_buffer[mxu].roll(self.num_sublanes, dims=1)
+        # # populate first 7 columns with register contents
+        # self.weight_buffer[mxu][:, 0:self.num_sublanes] = weight.reshape(self.num_lanes, self.num_sublanes)
+
+        assert weight.shape[0:2] == (self.num_sublanes, self.num_lanes)
+        # roll rows downwards
+        self.weight_buffer[mxu] = self.weight_buffer[mxu].roll(self.num_sublanes, dims=0)
+        # populate first 7 rows with register contents
+        self.weight_buffer[mxu][0:self.num_sublanes, :] = weight
+
+    def push_mxu_weight_transpose(self, mxu: str, weight: torch.Tensor) -> None:
         assert weight.shape[0:2] == (self.num_sublanes, self.num_lanes)
         # roll columns to the right
-        self.mxu0_weight_buffer = self.mxu0_weight_buffer.roll(self.num_sublanes, dims=1)
+        self.weight_buffer[mxu] = self.weight_buffer[mxu].roll(self.num_sublanes, dims=1)
         # populate first 7 columns with register contents
-        self.mxu0_weight_buffer[:, 0:self.num_sublanes] = weight.reshape(self.num_lanes, self.num_sublanes)
+        self.weight_buffer[mxu][:, 0:self.num_sublanes] = weight.reshape(self.num_lanes, self.num_sublanes)
 
-    def push_mxu0_weight_transpose(self, weight: torch.Tensor) -> None:
-        assert weight.shape[0:2] == (self.num_sublanes, self.num_lanes)
-        # roll columns to the right
-        self.mxu0_weight_buffer = self.mxu0_weight_buffer.roll(self.num_sublanes, dims=1)
-        # populate first 7 columns with register contents
-        self.mxu0_weight_buffer[:, 0:self.num_sublanes] = weight.reshape(self.num_lanes, self.num_sublanes)
+    def execute_mxu_matmul(self, mxu: str, activation: torch.Tensor) -> torch.Tensor:
+        self.accumulator[mxu][:] = 0
+        # C = A @ B: activation (8,128) @ weight (128,8) = (8,8); use first 8 columns of buffer
+        self.accumulator[mxu][0:self.num_sublanes, 0:self.num_sublanes] += (
+            activation @ self.weight_buffer[mxu][:, 0:self.num_sublanes]
+        )
 
-    def pop_mxu0_accumulator(self) -> torch.Tensor:
-        result = self.mxu0_accumulator[0:self.num_sublanes, :].clone()
-        self.mxu0_accumulator = self.mxu0_accumulator.roll(-self.num_sublanes, dims=0)
+    def pop_mxu_accumulator(self, mxu: str) -> torch.Tensor:
+        result = self.accumulator[mxu][0:self.num_sublanes, :].clone()
+        self.accumulator[mxu] = self.accumulator[mxu].roll(-self.num_sublanes, dims=0)
         return result

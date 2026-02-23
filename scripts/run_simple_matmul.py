@@ -5,25 +5,24 @@ import torch
 from tpu.sim import Simulator
 
 
-program_path = Path("./tests/matmul/tpu_compiler_dump/llo/1771725734295582123-matmul")
+program_path = Path("./tests/matmul_simple/tpu_compiler_dump/llo/1771659663124722556-matmul")
 
 
 if __name__ == "__main__":
     sim = Simulator(verbose=True)
 
-    # a = torch.arange(0, 8*128, dtype=torch.float32).reshape(8, 128)
-    # b = torch.arange(0, 8*128, dtype=torch.float32).reshape(128, 8)
+    a = torch.arange(0, 8*128, dtype=torch.float32).reshape(8, 128)
+    b = torch.arange(0, 8*128, dtype=torch.float32).reshape(128, 8)
 
     # a = torch.ones(8, 128, dtype=torch.float32)
     # b = torch.ones(128, 8, dtype=torch.float32)
 
-    a = torch.ones(128, 128, dtype=torch.float32)
-    b = torch.ones(128, 128, dtype=torch.float32)
-
     sim.load_program(program_path)
+
+    b_tiled = b.reshape(16, 8, 8).permute(1, 0, 2).reshape(8, 128).contiguous()
     sim.load_program_data({
         "#operand0": a,
-        "#operand1": b,
+        "#operand1": b_tiled,
     })
 
     sim.run()
@@ -31,9 +30,11 @@ if __name__ == "__main__":
     result = sim.state.read_hbm(sim.symbol_table["#operand2"].base_address, 8 * 128 * 4, dtype=torch.float32)
     result = result.reshape(8, 128)
     print("HBM result:")
-    print(result[0:8, 0:10])
+    print(result[0:4, 0:4])
 
-    # assert torch.allclose(result, torch.ones(8, 128, dtype=torch.float32)*2)
+    golden_result = a @ b
 
     print("Golden result:")
-    print(a @ b)
+    print(golden_result[0:4, 0:4])
+
+    assert torch.allclose(result[0:8, 0:8], golden_result)
