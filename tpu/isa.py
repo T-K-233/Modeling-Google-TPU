@@ -6,6 +6,8 @@ from .instruction import instr
 from .arch_state import ArchState
 
 
+# === Address Loading Instructions ===
+
 @instr("inlined_call_operand.hbm")
 def inlined_call_operand_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Load HBM base address (in granule index, 16-byte units) for an inlined call operand.
@@ -31,6 +33,22 @@ def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str,
     state.write_xreg(dest_reg, int(byte_addr))
 
 
+@instr("int_to_ptr.hbm")
+def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    src_addr_reg, = params
+    addr = state.read_xreg(src_addr_reg)
+    state.write_xreg(dest_reg, addr)
+
+
+@instr("int_to_ptr.vmem")
+def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    src_addr_reg, = params
+    addr = state.read_xreg(src_addr_reg)
+    state.write_xreg(dest_reg, addr)
+
+
+# === SFlag Instructions ===
+
 @instr("vsyncpa")
 def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
     addr, value = params
@@ -47,19 +65,7 @@ def vsyncadd(state: ArchState, _: str, params: dict[str, Any]):
     state.write_sflag(addr, flag_value)
 
 
-@instr("int_to_ptr.hbm")
-def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_addr_reg, = params
-    addr = state.read_xreg(src_addr_reg)
-    state.write_xreg(dest_reg, addr)
-
-
-@instr("int_to_ptr.vmem")
-def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_addr_reg, = params
-    addr = state.read_xreg(src_addr_reg)
-    state.write_xreg(dest_reg, addr)
-
+# === DMA Transfer (HBM <-> VMEM) Instructions ===
 
 @instr("dma.hbm_to_vmem")
 def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
@@ -103,11 +109,7 @@ def dma_done_wait(state: ArchState, dest_reg: str, params: dict[str, Any]):
     # print(f"  SFlag value at address {sync_flag}: {sflag_value}")
 
 
-@instr("sshll.u32")
-def sshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_reg, imm = params
-    state.write_xreg(dest_reg, state.read_xreg(src_reg) << int(imm))
-
+# === Scalar Memory Load/Store Instructions ===
 
 @instr("smov")
 def smov(state: ArchState, dest_reg: str, params: dict[str, Any]):
@@ -117,8 +119,19 @@ def smov(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_xreg(dest_reg, address)
 
 
+# === SALU Instructions ===
+
+@instr("sshll.u32")
+def sshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    src_reg, imm = params
+    state.write_xreg(dest_reg, state.read_xreg(src_reg) << int(imm))
+
+
+# === Tensor Memory Load/Store Instructions ===
+
 @instr("vstv")
 def vstv(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """ Load and broadcast a scalar value from SMEM into a vector register. """
     src_reg, = params
     address = state.read_xreg(src_reg)
     scalar_data = state.read_smem(address, 4, dtype=torch.float32)
@@ -126,17 +139,9 @@ def vstv(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_vreg(dest_reg, data)
 
 
-@instr("vst.msk")
-def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    address, lane_mask, vsrc_reg = params
-    data = state.read_vreg(vsrc_reg)
-    # TODO: implement lane masking
-    address = int(address, 16) if address.startswith("0x") else int(address)
-    state.write_vmem(address, data)
-
-
 @instr("vld")
 def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """ Vector load from VMEM into a vector register. """
     reg_or_offset, sublane_mask = params
     reg_val = 0
     offset_val = 0
@@ -170,11 +175,24 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
 @instr("vst")
 def vst(state: ArchState, _: str, params: dict[str, Any]):
+    """ Vector store from a vector register to VMEM. """
     address, lane_mask, vsrc_reg = params  # optional middle arg: mask (sm:$0xN)
     data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     address = int(address, 16) if address.startswith("0x") else int(address)
     state.write_vmem(address, data.flatten())
 
+
+@instr("vst.msk")
+def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """ Vector store from a vector register to VMEM with sublane masking. """
+    address, lane_mask, vsrc_reg = params
+    data = state.read_vreg(vsrc_reg)
+    # TODO: implement lane masking
+    address = int(address, 16) if address.startswith("0x") else int(address)
+    state.write_vmem(address, data)
+
+
+# === VPU Instructions ===
 
 @instr("vadd.f32")
 def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
@@ -192,6 +210,8 @@ def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_vreg(dest_reg, result)
 
 
+# === Tensor Packing/Unpacking Instructions ===
+
 @instr("vpack.c.bf16")
 def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc1_reg, vsrc2_reg = params
@@ -208,6 +228,8 @@ def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     unpacked_data = vsrc_data.to(torch.float32)[:, 0:state.num_lanes]
     state.write_vreg(dest_reg, unpacked_data)
 
+
+# === MXU Instructions ===
 
 @instr("vmatpush.msra.mxu0")
 def vmatpush_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
