@@ -1,0 +1,53 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %7 = vsyncpa [#allocation3], 0 /* loc("/tmp/ipython-input-2501634636.py":2:8 to :18) */  ;;  %s170_s0 = inlined_call_operand.hbm [shape: f32[8,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s171_s1 = inlined_call_operand.hbm [shape: f32[8,128], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s172_s2 = inlined_call_operand.hbm [shape: f32[8,128], index: 2, kind: output, shape index: {}] /* operand 2 */ } /* entry bundle: %vadd = custom-call(%Arg_0.1, %Arg_1.2) */
+   0x1   :  { %8 = vsyncpa [#allocation6], 0 /* loc("/tmp/ipython-input-2501634636.py":2:8 to :18) */ }
+   0x2   :  { %9 = vsyncpa [#allocation4], 0 /* loc("/tmp/ipython-input-2501634636.py":2:8 to :18) */  ;;  %s15_s11 = sshll.u32 %s170_s0, 4  ;;  %s143_s12 = smov [#allocation2] /* materialized constant */  ;;  %s16_s11 = int_to_ptr.hbm [resolvable:$true] %s15_s11 }
+   0x3   :  { %s17_s13 = sshll.u32 %s143_s12, 4  ;;  %s26_s16 = sshll.u32 %s171_s1, 4  ;;  %s18_s13 = int_to_ptr.vmem [resolvable:$true] %s17_s13  ;;  %s27_s16 = int_to_ptr.hbm [resolvable:$true] %s26_s16 }
+   0x4   :  { %20 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s16_s11, /*size_in_granules=*/128, /*vmem=*/%s18_s13, /*dst_syncflagno=*/[#allocation3] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0x5   :  { %s144_s17 = smov [#allocation5] /* materialized constant */  ;;  %s145_s19 = smov [#allocation7] /* materialized constant */ }
+   0x6   :  { %s28_s18 = sshll.u32 %s144_s17, 4  ;;  %s49_s20 = sshll.u32 %s145_s19, 4  ;;  %s29_s18 = int_to_ptr.vmem [resolvable:$true] %s28_s18  ;;  %s50_s20 = int_to_ptr.vmem [resolvable:$true] %s49_s20 }
+   0x7   :  { %31 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s27_s16, /*size_in_granules=*/128, /*vmem=*/%s29_s18, /*dst_syncflagno=*/[#allocation6] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0x8   :  { %s51_s0 = sshll.u32 %s172_s2, 4  ;;  %137 = dma.done.wait [#allocation3], 128 /* pipeline-emitter-dma-wait */  ;;  %s52_s0 = int_to_ptr.hbm [resolvable:$true] %s51_s0 }
+   0x9   :  { %138 = vsyncadd [#allocation3], 4294967168  ;;  %v40_v0 = vld [vmem:[#allocation2] sm:$0xff] /* loc("/tmp/ipython-input-2501634636.py":2:8 to :18) */ }
+   0xa   :  { %139 = dma.done.wait [#allocation6], 128 /* pipeline-emitter-dma-wait */ }
+   0xb   :  { %140 = vsyncadd [#allocation6], 4294967168  ;;  %v41_v1 = vld [vmem:[#allocation5] sm:$0xff] /* loc("/tmp/ipython-input-2501634636.py":3:8 to :18) */ }
+   0xc   :  { %v42_v2 = vadd.f32 %v41_v1, %v40_v0 /* loc("/tmp/ipython-input-2501634636.py":4:17 to :22) */ }
+   0xd   :  { %43 = vst [vmem:[#allocation7] sm:$0xff] /*vst_source=*/%v42_v2 /* loc("/tmp/ipython-input-2501634636.py":4:4 to :14) */ }
+   0xe   :  { %54 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s50_s20, /*size_in_granules=*/128, /*hbm=*/%s52_s0, /*dst_syncflagno=*/[#allocation4] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0xf   :  { %141 = dma.done.wait [#allocation4], 128 /* pipeline-emitter-dma-wait */ }
+  0x10   :  { %142 = vsyncadd [#allocation4], 4294967168 }
+  0x11   :  { %59 = vsyncpa [#allocation3], 1 }
+  0x12   :  { %60 = vsyncpa [#allocation6], 1 }
+  0x13   :  { %61 = vsyncpa [#allocation4], 1 } /* exit bundle: %vadd = custom-call(%Arg_0.1, %Arg_1.2) */

@@ -9,4 +9,4 @@ wheels/
 # Virtual environments
 .venv
 
-tpu_compiler_dump/
+/tpu_compiler_dump/

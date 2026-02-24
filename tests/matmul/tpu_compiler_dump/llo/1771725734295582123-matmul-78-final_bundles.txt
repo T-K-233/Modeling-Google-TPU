@@ -1,0 +1,115 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %7 = vsyncpa [#allocation3], 0 /* loc(unknown) */  ;;  %s380_s0 = inlined_call_operand.hbm [shape: f32[128,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s381_s1 = inlined_call_operand.hbm [shape: f32[128,128], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s382_s2 = inlined_call_operand.hbm [shape: f32[128,128], index: 2, kind: output, shape index: {}] /* operand 2 */ } /* entry bundle: %matmul = custom-call(%Arg_0.1, %Arg_1.2) */
+   0x1   :  { %8 = vsyncpa [#allocation6], 0 /* loc(unknown) */ }
+   0x2   :  { %9 = vsyncpa [#allocation4], 0 /* loc(unknown) */  ;;  %s15_s11 = sshll.u32 %s380_s0, 4  ;;  %s353_s12 = smov [#allocation2] /* materialized constant */  ;;  %s16_s11 = int_to_ptr.hbm [resolvable:$true] %s15_s11 }
+   0x3   :  { %s17_s13 = sshll.u32 %s353_s12, 4  ;;  %s26_s16 = sshll.u32 %s381_s1, 4  ;;  %s18_s13 = int_to_ptr.vmem [resolvable:$true] %s17_s13  ;;  %s27_s16 = int_to_ptr.hbm [resolvable:$true] %s26_s16 }
+   0x4   :  { %20 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s16_s11, /*size_in_granules=*/2048, /*vmem=*/%s18_s13, /*dst_syncflagno=*/[#allocation3] /* 
+base_bounds: (16, 1)
+dynamic_base_bounds: (16, 1)
+window_bounds: (16, 1)
+iteration_bounds: (1, 1, 1)
+strides: (16, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0x5   :  { %s354_s17 = smov [#allocation5] /* materialized constant */ }
+   0x6   :  { %s28_s18 = sshll.u32 %s354_s17, 4  ;;  %s29_s18 = int_to_ptr.vmem [resolvable:$true] %s28_s18 }
+   0x7   :  { %31 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s27_s16, /*size_in_granules=*/2048, /*vmem=*/%s29_s18, /*dst_syncflagno=*/[#allocation6] /* 
+base_bounds: (16, 1)
+dynamic_base_bounds: (16, 1)
+window_bounds: (16, 1)
+iteration_bounds: (1, 1, 1)
+strides: (16, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0x8   :  { %347 = dma.done.wait [#allocation3], 2048 /* pipeline-emitter-dma-wait */ }
+   0x9   :  { %348 = vsyncadd [#allocation3], 4294965248 }
+   0xa   :  { %349 = dma.done.wait [#allocation6], 2048 /* pipeline-emitter-dma-wait */ }
+   0xb   :  { %350 = vsyncadd [#allocation6], 4294965248  ;;  %v107_v0 = vld [vmem:[#allocation5 + $0x78] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v106_v1 = vld [vmem:[#allocation5 + $0x70] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %s355_s0 = smov [#allocation7] /* materialized constant */  ;;  %s212_s21 = sshll.u32 %s382_s2, 4  ;;  %s213_s21 = int_to_ptr.hbm [resolvable:$true] %s212_s21 }
+   0xc   :  { %224 = vmatpush.msra.mxu2 %v107_v0 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %225 = vmatpush.msra.mxu3 %v107_v0 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v105_v2 = vld [vmem:[#allocation5 + $0x68] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v104_v3 = vld [vmem:[#allocation5 + $0x60] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v103_v4 = vld [vmem:[#allocation5 + $0x58] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %s210_s1 = sshll.u32 %s355_s0, 4  ;;  %s211_s1 = int_to_ptr.vmem [resolvable:$true] %s210_s1 }
+   0xd   :  { %108 = vmatpush.msra.mxu0 %v107_v0 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %223 = vmatpush.msra.mxu1 %v107_v0 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v102_v5 = vld [vmem:[#allocation5 + $0x50] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v101_v6 = vld [vmem:[#allocation5 + $0x48] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v100_v7 = vld [vmem:[#allocation5 + $0x40] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */ }
+   0xe   :  { %227 = vmatpush.msra.mxu2 %v106_v1 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %228 = vmatpush.msra.mxu3 %v106_v1 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v99_v8 = vld [vmem:[#allocation5 + $0x38] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v98_v9 = vld [vmem:[#allocation5 + $0x30] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v97_v10 = vld [vmem:[#allocation5 + $0x28] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */ }
+   0xf   :  { %109 = vmatpush.msra.mxu0 %v106_v1 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %226 = vmatpush.msra.mxu1 %v106_v1 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v96_v11 = vld [vmem:[#allocation5 + $0x20] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v95_v12 = vld [vmem:[#allocation5 + $0x18] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v94_v13 = vld [vmem:[#allocation5 + $0x10] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */ }
+  0x10   :  { %230 = vmatpush.msra.mxu2 %v105_v2 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %231 = vmatpush.msra.mxu3 %v105_v2 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v93_v14 = vld [vmem:[#allocation5 + $0x8] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v92_v15 = vld [vmem:[#allocation5] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:31 to :41) */  ;;  %v86_v24 = vld [vmem:[#allocation2 + $0x50] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x11   :  { %110 = vmatpush.msra.mxu0 %v105_v2 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %229 = vmatpush.msra.mxu1 %v105_v2 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v84_v16 = vld [vmem:[#allocation2 + $0x40] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v85_v20 = vld [vmem:[#allocation2 + $0x48] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v90_v25 = vld [vmem:[#allocation2 + $0x70] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x12   :  { %233 = vmatpush.msra.mxu2 %v104_v3 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %234 = vmatpush.msra.mxu3 %v104_v3 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v88_v17 = vld [vmem:[#allocation2 + $0x60] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v89_v21 = vld [vmem:[#allocation2 + $0x68] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v78_v26 = vld [vmem:[#allocation2 + $0x10] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x13   :  { %111 = vmatpush.msra.mxu0 %v104_v3 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %232 = vmatpush.msra.mxu1 %v104_v3 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v76_v18 = vld [vmem:[#allocation2] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v77_v22 = vld [vmem:[#allocation2 + $0x8] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v82_v27 = vld [vmem:[#allocation2 + $0x30] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x14   :  { %236 = vmatpush.msra.mxu2 %v103_v4 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %237 = vmatpush.msra.mxu3 %v103_v4 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v80_v19 = vld [vmem:[#allocation2 + $0x20] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v81_v23 = vld [vmem:[#allocation2 + $0x28] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */  ;;  %v87_v28 = vld [vmem:[#allocation2 + $0x58] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x15   :  { %112 = vmatpush.msra.mxu0 %v103_v4 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %235 = vmatpush.msra.mxu1 %v103_v4 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v91_v29 = vld [vmem:[#allocation2 + $0x78] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x16   :  { %239 = vmatpush.msra.mxu2 %v102_v5 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %240 = vmatpush.msra.mxu3 %v102_v5 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v79_v30 = vld [vmem:[#allocation2 + $0x18] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x17   :  { %113 = vmatpush.msra.mxu0 %v102_v5 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %238 = vmatpush.msra.mxu1 %v102_v5 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %v83_v31 = vld [vmem:[#allocation2 + $0x38] sm:$0xff] /* loc("/tmp/ipython-input-1558309359.py":6:18 to :28) */ }
+  0x18   :  { %242 = vmatpush.msra.mxu2 %v101_v6 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %243 = vmatpush.msra.mxu3 %v101_v6 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x19   :  { %114 = vmatpush.msra.mxu0 %v101_v6 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %241 = vmatpush.msra.mxu1 %v101_v6 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1a   :  { %245 = vmatpush.msra.mxu2 %v100_v7 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %246 = vmatpush.msra.mxu3 %v100_v7 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1b   :  { %115 = vmatpush.msra.mxu0 %v100_v7 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %244 = vmatpush.msra.mxu1 %v100_v7 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1c   :  { %248 = vmatpush.msra.mxu2 %v99_v8 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %249 = vmatpush.msra.mxu3 %v99_v8 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1d   :  { %116 = vmatpush.msra.mxu0 %v99_v8 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %247 = vmatpush.msra.mxu1 %v99_v8 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1e   :  { %251 = vmatpush.msra.mxu2 %v98_v9 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %252 = vmatpush.msra.mxu3 %v98_v9 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x1f   :  { %117 = vmatpush.msra.mxu0 %v98_v9 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %250 = vmatpush.msra.mxu1 %v98_v9 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x20   :  { %254 = vmatpush.msra.mxu2 %v97_v10 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %255 = vmatpush.msra.mxu3 %v97_v10 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x21   :  { %118 = vmatpush.msra.mxu0 %v97_v10 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %253 = vmatpush.msra.mxu1 %v97_v10 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x22   :  { %257 = vmatpush.msra.mxu2 %v96_v11 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %258 = vmatpush.msra.mxu3 %v96_v11 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x23   :  { %119 = vmatpush.msra.mxu0 %v96_v11 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %256 = vmatpush.msra.mxu1 %v96_v11 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x24   :  { %260 = vmatpush.msra.mxu2 %v95_v12 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %261 = vmatpush.msra.mxu3 %v95_v12 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x25   :  { %120 = vmatpush.msra.mxu0 %v95_v12 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %259 = vmatpush.msra.mxu1 %v95_v12 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x26   :  { %263 = vmatpush.msra.mxu2 %v94_v13 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %264 = vmatpush.msra.mxu3 %v94_v13 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x27   :  { %121 = vmatpush.msra.mxu0 %v94_v13 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %262 = vmatpush.msra.mxu1 %v94_v13 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x28   :  { %266 = vmatpush.msra.mxu2 %v93_v14 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %267 = vmatpush.msra.mxu3 %v93_v14 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x29   :  { %122 = vmatpush.msra.mxu0 %v93_v14 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %265 = vmatpush.msra.mxu1 %v93_v14 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2a   :  { %269 = vmatpush.msra.mxu2 %v92_v15 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %270 = vmatpush.msra.mxu3 %v92_v15 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2b   :  { %148 = vmatmul.f32.vlgmr.msra.gmra.mxu2 %v84_v16 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %160 = vmatmul.f32.vlgmr.msra.gmra.mxu3 %v88_v17 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2c   :  { %123 = vmatpush.msra.mxu0 %v92_v15 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %268 = vmatpush.msra.mxu1 %v92_v15 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2d   :  { %124 = vmatmul.f32.vlgmr.msra.gmra.mxu0 %v76_v18 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %136 = vmatmul.f32.vlgmr.msra.gmra.mxu1 %v80_v19 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2e   :  { %151 = vmatmul.f32.gmra.mxu2 %v85_v20 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %163 = vmatmul.f32.gmra.mxu3 %v89_v21 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x2f   :  { %127 = vmatmul.f32.gmra.mxu0 %v77_v22 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %139 = vmatmul.f32.gmra.mxu1 %v81_v23 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x30   :  { %154 = vmatmul.f32.gmra.mxu2 %v86_v24 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %166 = vmatmul.f32.gmra.mxu3 %v90_v25 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x31   :  { %130 = vmatmul.f32.gmra.mxu0 %v78_v26 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %142 = vmatmul.f32.gmra.mxu1 %v82_v27 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x32   :  { %157 = vmatmul.f32.gmra.mxu2 %v87_v28 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %169 = vmatmul.f32.gmra.mxu3 %v91_v29 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x33   :  { %133 = vmatmul.f32.gmra.mxu0 %v79_v30 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */  ;;  %145 = vmatmul.f32.gmra.mxu1 %v83_v31 /* loc("/tmp/ipython-input-1558309359.py":6:18 to :41) */ }
+  0x34   :  { %v125_v32 = vpop.f32.mrf.mxu0 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v137_v33 = vpop.f32.mrf.mxu1 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x35   :  { %189 = vst [vmem:[#allocation7] sm:$0xff] /*vst_source=*/%v125_v32 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x36   :  { %193 = vst [vmem:[#allocation7 + $0x20] sm:$0xff] /*vst_source=*/%v137_v33 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x37   :  { %v149_v34 = vpop.f32.mrf.mxu2 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v161_v35 = vpop.f32.mrf.mxu3 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x38   :  { %197 = vst [vmem:[#allocation7 + $0x40] sm:$0xff] /*vst_source=*/%v149_v34 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x39   :  { %201 = vst [vmem:[#allocation7 + $0x60] sm:$0xff] /*vst_source=*/%v161_v35 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x3a   :  { %v128_v36 = vpop.f32.mrf.mxu0 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v140_v37 = vpop.f32.mrf.mxu1 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x3b   :  { %190 = vst [vmem:[#allocation7 + $0x8] sm:$0xff] /*vst_source=*/%v128_v36 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x3c   :  { %194 = vst [vmem:[#allocation7 + $0x28] sm:$0xff] /*vst_source=*/%v140_v37 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x3d   :  { %v152_v38 = vpop.f32.mrf.mxu2 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v164_v39 = vpop.f32.mrf.mxu3 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x3e   :  { %198 = vst [vmem:[#allocation7 + $0x48] sm:$0xff] /*vst_source=*/%v152_v38 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x3f   :  { %202 = vst [vmem:[#allocation7 + $0x68] sm:$0xff] /*vst_source=*/%v164_v39 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x40   :  { %v131_v40 = vpop.f32.mrf.mxu0 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v143_v41 = vpop.f32.mrf.mxu1 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x41   :  { %191 = vst [vmem:[#allocation7 + $0x10] sm:$0xff] /*vst_source=*/%v131_v40 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x42   :  { %195 = vst [vmem:[#allocation7 + $0x30] sm:$0xff] /*vst_source=*/%v143_v41 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x43   :  { %v155_v42 = vpop.f32.mrf.mxu2 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v167_v43 = vpop.f32.mrf.mxu3 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x44   :  { %199 = vst [vmem:[#allocation7 + $0x50] sm:$0xff] /*vst_source=*/%v155_v42 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x45   :  { %203 = vst [vmem:[#allocation7 + $0x70] sm:$0xff] /*vst_source=*/%v167_v43 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x46   :  { %v134_v44 = vpop.f32.mrf.mxu0 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v146_v45 = vpop.f32.mrf.mxu1 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x47   :  { %192 = vst [vmem:[#allocation7 + $0x18] sm:$0xff] /*vst_source=*/%v134_v44 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x48   :  { %196 = vst [vmem:[#allocation7 + $0x38] sm:$0xff] /*vst_source=*/%v146_v45 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x49   :  { %v158_v46 = vpop.f32.mrf.mxu2 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */  ;;  %v170_v47 = vpop.f32.mrf.mxu3 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :41) */ }
+  0x4a   :  { %200 = vst [vmem:[#allocation7 + $0x58] sm:$0xff] /*vst_source=*/%v158_v46 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x4b   :  { %204 = vst [vmem:[#allocation7 + $0x78] sm:$0xff] /*vst_source=*/%v170_v47 /* loc("/tmp/ipython-input-1558309359.py":6:4 to :14) */ }
+  0x4c   :  { %215 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s211_s1, /*size_in_granules=*/2048, /*hbm=*/%s213_s21, /*dst_syncflagno=*/[#allocation4] /* 
+base_bounds: (16, 1)
+dynamic_base_bounds: (16, 1)
+window_bounds: (16, 1)
+iteration_bounds: (1, 1, 1)
+strides: (16, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+  0x4d   :  { %351 = dma.done.wait [#allocation4], 2048 /* pipeline-emitter-dma-wait */ }
+  0x4e   :  { %352 = vsyncadd [#allocation4], 4294965248 }
+  0x4f   :  { %220 = vsyncpa [#allocation3], 1 }
+  0x50   :  { %221 = vsyncpa [#allocation6], 1 }
+  0x51   :  { %222 = vsyncpa [#allocation4], 1 } /* exit bundle: %matmul = custom-call(%Arg_0.1, %Arg_1.2) */

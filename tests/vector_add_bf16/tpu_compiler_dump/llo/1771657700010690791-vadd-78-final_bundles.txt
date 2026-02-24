@@ -1,0 +1,55 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %7 = vsyncpa [#allocation3], 0 /* loc("/tmp/ipython-input-2995722574.py":2:8 to :18) */  ;;  %s173_s0 = inlined_call_operand.hbm [shape: bf16[8,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s174_s1 = inlined_call_operand.hbm [shape: bf16[8,128], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s175_s2 = inlined_call_operand.hbm [shape: bf16[8,128], index: 2, kind: output, shape index: {}] /* operand 2 */ } /* entry bundle: %vadd = custom-call(%Arg_0.1, %Arg_1.2) */
+   0x1   :  { %8 = vsyncpa [#allocation6], 0 /* loc("/tmp/ipython-input-2995722574.py":2:8 to :18) */ }
+   0x2   :  { %9 = vsyncpa [#allocation4], 0 /* loc("/tmp/ipython-input-2995722574.py":2:8 to :18) */  ;;  %s15_s11 = sshll.u32 %s173_s0, 4  ;;  %s146_s12 = smov [#allocation2] /* materialized constant */  ;;  %s16_s11 = int_to_ptr.hbm [resolvable:$true] %s15_s11 }
+   0x3   :  { %s17_s13 = sshll.u32 %s146_s12, 4  ;;  %s26_s16 = sshll.u32 %s174_s1, 4  ;;  %s18_s13 = int_to_ptr.vmem [resolvable:$true] %s17_s13  ;;  %s27_s16 = int_to_ptr.hbm [resolvable:$true] %s26_s16 }
+   0x4   :  { %20 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s16_s11, /*size_in_granules=*/64, /*vmem=*/%s18_s13, /*dst_syncflagno=*/[#allocation3] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 2048 */ }
+   0x5   :  { %s147_s17 = smov [#allocation5] /* materialized constant */ }
+   0x6   :  { %s28_s18 = sshll.u32 %s147_s17, 4  ;;  %s29_s18 = int_to_ptr.vmem [resolvable:$true] %s28_s18 }
+   0x7   :  { %31 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s27_s16, /*size_in_granules=*/64, /*vmem=*/%s29_s18, /*dst_syncflagno=*/[#allocation6] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 2048 */ }
+   0x8   :  { %140 = dma.done.wait [#allocation3], 64 /* pipeline-emitter-dma-wait */ }
+   0x9   :  { %141 = vsyncadd [#allocation3], 4294967232  ;;  %v40_v0 = vld [vmem:[#allocation2] sm:$0xf] /* loc("/tmp/ipython-input-2995722574.py":2:8 to :18) */ }
+   0xa   :  { %142 = dma.done.wait [#allocation6], 64 /* pipeline-emitter-dma-wait */ }
+   0xb   :  { %143 = vsyncadd [#allocation6], 4294967232  ;;  %v41_v1 = vld [vmem:[#allocation5] sm:$0xf] /* loc("/tmp/ipython-input-2995722574.py":3:8 to :18) */  ;;  %v42_v2 = vunpack.c.l.bf16 %v40_v0 /* loc("/tmp/ipython-input-2995722574.py":4:17 to :22) */  ;;  %s148_s0 = smov [#allocation7] /* materialized constant */  ;;  %s54_s1 = sshll.u32 %s175_s2, 4  ;;  %s55_s1 = int_to_ptr.hbm [resolvable:$true] %s54_s1 }
+   0xc   :  { %v43_v3 = vunpack.c.l.bf16 %v41_v1 /* loc("/tmp/ipython-input-2995722574.py":4:17 to :22) */  ;;  %s52_s19 = sshll.u32 %s148_s0, 4  ;;  %s53_s19 = int_to_ptr.vmem [resolvable:$true] %s52_s19 }
+   0xd   :  { %v44_v4 = vadd.f32 %v43_v3, %v42_v2 /* loc("/tmp/ipython-input-2995722574.py":4:17 to :22) */ }
+   0xe   :  { %v45_v5 = vpack.c.bf16 %v44_v4, %v44_v4 /* loc("/tmp/ipython-input-2995722574.py":4:17 to :22) */ }
+   0xf   :  { %46 = vst [vmem:[#allocation7] sm:$0xf] /*vst_source=*/%v45_v5 /* loc("/tmp/ipython-input-2995722574.py":4:4 to :14) */ }
+  0x10   :  { %57 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s53_s19, /*size_in_granules=*/64, /*hbm=*/%s55_s1, /*dst_syncflagno=*/[#allocation4] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 2048 */ }
+  0x11   :  { %144 = dma.done.wait [#allocation4], 64 /* pipeline-emitter-dma-wait */ }
+  0x12   :  { %145 = vsyncadd [#allocation4], 4294967232 }
+  0x13   :  { %62 = vsyncpa [#allocation3], 1 }
+  0x14   :  { %63 = vsyncpa [#allocation6], 1 }
+  0x15   :  { %64 = vsyncpa [#allocation4], 1 } /* exit bundle: %vadd = custom-call(%Arg_0.1, %Arg_1.2) */
