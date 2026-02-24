@@ -50,6 +50,9 @@ class ArchState:
             self.weight_buffer[mxu] = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
             self.accumulator[mxu] = torch.zeros(self.num_lanes, self.num_lanes, dtype=torch.float32)
 
+        self.xlu_buffer: torch.Tensor = torch.zeros(self.num_sublanes, self.num_lanes * 2, dtype=torch.float32)
+        """ XLU buffer: (8, 256) shift buffer """
+
     def read_xreg(self, src: str) -> int:
         return self.xreg[src]
 

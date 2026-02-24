@@ -142,21 +142,24 @@ def vstv(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vld")
 def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """ Vector load from VMEM into a vector register. """
-    reg_or_offset, sublane_mask = params
-    reg_val = 0
-    offset_val = 0
-    if "+" in reg_or_offset:
-        reg, offset = reg_or_offset.split("+", 1)
+    sreg_or_imm, sublane_mask = params
+
+    if "+" in sreg_or_imm:
+        reg, offset = sreg_or_imm.split("+", 1)
         reg_val = state.read_xreg(reg.strip())
         offset = offset.strip()
         offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
         offset_val = offset_val << 2  # TODO: not sure why need to multiply by 4
-    elif reg_or_offset.startswith("s"):
-        reg_val = state.read_xreg(reg_or_offset)
-    else:
-        offset_val = int(reg_or_offset, 16) if reg_or_offset.startswith("0x") else int(reg_or_offset)
+        address = reg_val + offset_val
 
-    address = reg_val + offset_val
+    elif sreg_or_imm.startswith("s"):
+        reg_val = state.read_xreg(sreg_or_imm)
+        address = reg_val
+
+    else:
+        offset_val = int(sreg_or_imm, 16) if sreg_or_imm.startswith("0x") else int(sreg_or_imm)
+        address = offset_val
+
     data = state.read_vmem(address, state.vreg_size).reshape(state.num_sublanes, -1)
 
     if sublane_mask != "255":
@@ -168,7 +171,9 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
             device=data.device,
         ).unsqueeze(1)
         data = data * row_mask
-        # print(f"Row mask: {row_mask}")
+
+        if state.verbose:
+            print(f"\033[90m  Load with mask '{sublane_mask}' -> {row_mask.flatten().int().tolist()}\033[0m")
 
     state.write_vreg(dest_reg, data)
 
@@ -176,19 +181,70 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vst")
 def vst(state: ArchState, _: str, params: dict[str, Any]):
     """ Vector store from a vector register to VMEM. """
-    address, lane_mask, vsrc_reg = params  # optional middle arg: mask (sm:$0xN)
+    address, sublane_mask, vsrc_reg = params  # optional middle arg: mask (sm:$0xN)
     data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     address = int(address, 16) if address.startswith("0x") else int(address)
+
+    if sublane_mask != "255":
+        mask_val = int(sublane_mask)
+        if mask_val == 0:
+            if state.verbose:
+                print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
+            return
+
+        # 8-bit mask: bit i = 1 keep row i, bit i = 0 skip row i.
+        row_mask = torch.tensor(
+            [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
+            dtype=torch.bool,
+            device=data.device,
+        ).unsqueeze(1)
+
+        # With the current assumption, mask bits are contiguous from lane 0.
+        highest_set_bit = mask_val.bit_length() - 1
+        rows_to_store = min(state.num_sublanes, highest_set_bit + 1)
+        data = data[:rows_to_store, :]
+
+        if state.verbose:
+            print(
+                f"\033[90m  Store with mask '{mask_val}' -> "
+                f"{row_mask.flatten().int().tolist()} (rows [0:{rows_to_store - 1}] stored)\033[0m"
+            )
+
     state.write_vmem(address, data.flatten())
 
 
 @instr("vst.msk")
 def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """ Vector store from a vector register to VMEM with sublane masking. """
-    address, lane_mask, vsrc_reg = params
+    address, sublane_mask, vsrc_reg = params
     data = state.read_vreg(vsrc_reg)
-    # TODO: implement lane masking
     address = int(address, 16) if address.startswith("0x") else int(address)
+
+    if sublane_mask != "255":
+        mask_val = int(sublane_mask)
+        if mask_val == 0:
+            if state.verbose:
+                print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
+            return
+
+        # 8-bit mask: bit i = 1 keep row i, bit i = 0 skip row i.
+        row_mask = torch.tensor(
+            [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
+            dtype=torch.bool,
+            device=data.device,
+        ).unsqueeze(1)
+
+        # With the current assumption, mask bits are contiguous from lane 0.
+        highest_set_bit = mask_val.bit_length() - 1
+        rows_to_store = min(state.num_sublanes, highest_set_bit + 1)
+        data = data[:rows_to_store, :]
+
+        if state.verbose:
+            print(
+                f"\033[90m  Store with mask '{mask_val}' -> "
+                f"{row_mask.flatten().int().tolist()} (rows [0:{rows_to_store - 1}] stored)\033[0m"
+            )
+
     state.write_vmem(address, data)
 
 
@@ -210,12 +266,27 @@ def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_vreg(dest_reg, result)
 
 
+@instr("vrot.slane")
+def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    vsrc_reg, shift_amount = params
+    shift_amount = int(shift_amount)
+    assert shift_amount >= 0 and shift_amount < state.num_sublanes
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    vdest_data = vsrc_data.roll(shift_amount, dims=0)
+    state.write_vreg(dest_reg, vdest_data)
+    # breakpoint()
+
+
 # === Tensor Packing/Unpacking Instructions ===
 
 @instr("vpack.c.bf16")
 def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    vsrc1_reg, vsrc2_reg = params
-    vsrc1_data = state.read_vreg(vsrc1_reg, dtype=torch.float32).to(torch.bfloat16)
+    reg1_or_imm, vsrc2_reg = params
+
+    if reg1_or_imm.startswith("v"):
+        vsrc1_data = state.read_vreg(reg1_or_imm, dtype=torch.float32).to(torch.bfloat16)
+    else:
+        vsrc1_data = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.bfloat16) + float(reg1_or_imm)
     vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32).to(torch.bfloat16)
     packed_data = torch.cat([vsrc1_data.unsqueeze(-1), vsrc2_data.unsqueeze(-1)], dim=-1)
     state.write_vreg(dest_reg, packed_data)
@@ -227,6 +298,85 @@ def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
     unpacked_data = vsrc_data.to(torch.float32)[:, 0:state.num_lanes]
     state.write_vreg(dest_reg, unpacked_data)
+
+
+@instr("vunpack.c.h.bf16")
+def vunpack_c_h_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    vsrc_reg, = params
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
+    unpacked_data = vsrc_data.to(torch.float32)[:, state.num_lanes:]
+    state.write_vreg(dest_reg, unpacked_data)
+
+
+@instr("vunpack.i.l.bf16")
+def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    vsrc_reg, = params
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
+    unpacked_data = vsrc_data.to(torch.float32)[:, 0:state.num_lanes]
+    state.write_vreg(dest_reg, unpacked_data)
+
+
+# === XLU Instructions ===
+
+
+@instr("vxpose.xlu0.b32.start.end")
+def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
+    vsrc_reg, num_lanes = params
+    num_lanes = int(num_lanes)
+    assert num_lanes <= state.num_lanes
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+
+
+@instr("vxpose.xlu0.b32.start")
+def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
+    vsrc_reg, num_lanes = params
+    num_lanes = int(num_lanes)
+    assert num_lanes <= state.num_lanes
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+
+
+@instr("vxpose.xlu0.b32.end")
+def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
+    vsrc_reg, num_lanes = params
+    num_lanes = int(num_lanes)
+    assert num_lanes <= state.num_lanes
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    # roll rightwards for a full tile
+    state.xlu_buffer = state.xlu_buffer.roll(state.num_lanes, dims=1)
+    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+
+
+@instr("vpop.trf.xlu0")
+def vpop_trf_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """
+    Pop the left 8x8 square from the XLU buffer, transpose it, and load it to the destination register.
+    All other elements in the destination register are set to zero.
+
+    The XLU buffer is a 16 x 128 array. Tensor registers are first transposed and then
+    shifted into the buffer from left to right (increasing column index). The result
+    is always read out from the bottom-left 8x8 square, effectively sliding this
+    window downward over time.
+
+    XLU buffer (16 x 128):
+
+            cols 0-7             cols 8-255
+            +--------+------------------------------------------+
+        --> |XXXXXXXX|                                          |
+        --> |XXXXXXXX|             XLU Buffer                   |
+        --> |XXXXXXXX|                                          |
+        --> |XXXXXXXX|                                          |
+            +--------+------------------------------------------+
+             | | | |
+             V V V V
+         8x8 submatrix (bottom-left; popped, transposed, and written to dest)
+    """
+    result = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32)
+    result[:, 0:state.num_sublanes] = state.xlu_buffer[:, 0:state.num_sublanes].clone().transpose(0, 1)
+    state.xlu_buffer = state.xlu_buffer.roll(-state.num_sublanes, dims=1)
+    state.xlu_buffer[:, -state.num_sublanes:] = 0
+    state.write_vreg(dest_reg, result)
 
 
 # === MXU Instructions ===

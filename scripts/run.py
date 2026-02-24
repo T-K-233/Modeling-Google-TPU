@@ -5,25 +5,24 @@ import torch
 from tpu.sim import Simulator
 
 
-program_path = Path("./tests/matmul/tpu_compiler_dump/llo/1771725734295582123-matmul")
+program_path = Path("./tests/lane_reduce_bf16/tpu_compiler_dump/llo/1771959547088034911-reduce")
 
 
 if __name__ == "__main__":
     sim = Simulator(verbose=True)
 
-    # a = torch.arange(0, 8*128, dtype=torch.float32).reshape(8, 128)
+    a = torch.arange(0, 16*128, dtype=torch.bfloat16).reshape(16, 128)
+    # a = torch.ones(16, 128, dtype=torch.bfloat16)
+
     # b = torch.arange(0, 8*128, dtype=torch.float32).reshape(128, 8)
 
     # a = torch.ones(8, 128, dtype=torch.float32)
     # b = torch.ones(128, 8, dtype=torch.float32)
 
-    a = torch.ones(128, 128, dtype=torch.float32)
-    b = torch.ones(128, 128, dtype=torch.float32)
-
     sim.load_program(program_path)
     sim.load_program_data({
         "#operand0": a,
-        "#operand1": b,
+        # "#operand1": b,
     })
 
     sim.run()
@@ -33,7 +32,9 @@ if __name__ == "__main__":
     print("HBM result:")
     print(result[0:8, 0:10])
 
+    c = a.sum(dim=1)
+
     # assert torch.allclose(result, torch.ones(8, 128, dtype=torch.float32)*2)
 
     print("Golden result:")
-    print(a @ b)
+    print(c)

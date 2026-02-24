@@ -128,6 +128,30 @@ class TpuTests(unittest.TestCase):
 
         self._check_result(result_8x8, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
+    def test_lane_reduce(self):
+        """Lane reduction: sum over columns of (8,128) input -> (8,). Refs scripts/run.py."""
+        a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128)
+        scalar_init = torch.tensor(0.0, dtype=torch.float32)
+
+        self.sim.load_program(
+            "./tests/lane_reduce/tpu_compiler_dump/llo/1771891793285284691-reduce.7"
+        )
+        self.sim.load_program_data({
+            "#operand0": a,
+            "#operand1": scalar_init,
+        })
+        self.sim.run()
+
+        result = self.sim.state.read_hbm(
+            self.sim.symbol_table["#operand2"].base_address,
+            8 * torch.float32.itemsize,
+            dtype=torch.float32,
+        ).unsqueeze(1)
+
+        golden_result = a.sum(dim=1, keepdim=True)
+
+        self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
+
 
 if __name__ == "__main__":
     unittest.main()
