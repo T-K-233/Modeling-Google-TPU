@@ -3,6 +3,7 @@ import unittest
 import torch
 
 from tpu.sim import Simulator
+from tpu.tiling import convert_to_bf16_tile_layout, convert_from_bf16_tile_layout
 
 
 class TpuTests(unittest.TestCase):
@@ -17,12 +18,12 @@ class TpuTests(unittest.TestCase):
         self.sim = Simulator()
 
     def _check_result(self, result: torch.Tensor, golden_result: torch.Tensor, rtol: float, atol: float):
-        if not torch.allclose(result, golden_result, rtol=rtol, atol=atol):
+        if not torch.allclose(result.flatten(), golden_result.flatten(), rtol=rtol, atol=atol):
             diff = (result - golden_result).abs()
             max_diff = diff.max().item()
             rel_diff = (diff / golden_result.abs().clamp(min=1e-12)).max().item()
             msg = (
-                "✗ Test failed\n"
+                "\033[91m✗ Test failed\033[0m\n"
                 f"  Max absolute difference: {max_diff:.6e}\n"
                 f"  Max relative difference: {rel_diff:.6e}\n"
                 f"  Mismatched elements: {(diff > atol + rtol * golden_result.abs()).sum().item()} / {result.numel()}\n"
@@ -33,7 +34,7 @@ class TpuTests(unittest.TestCase):
             )
             self.fail(msg)
 
-    def test_vector_add_simple(self):
+    def testVectorAddSimple(self):
         operand_a = torch.ones(8, 128, dtype=torch.float32) * 2
         operand_b = torch.ones(8, 128, dtype=torch.float32)
 
@@ -79,16 +80,16 @@ class TpuTests(unittest.TestCase):
 
     #     self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
-    def test_vector_add_bf16(self):
-        operand_a = torch.ones(8, 128, dtype=torch.bfloat16) * 2
-        operand_b = torch.ones(8, 128, dtype=torch.bfloat16)
+    def testVectorAddBf16(self):
+        operand_a = torch.arange(8*128, dtype=torch.bfloat16).reshape(4, 128, 2)
+        operand_b = torch.arange(8*128, dtype=torch.bfloat16).reshape(4, 128, 2)
 
         self.sim.load_program(
             "./tests/vector_add_bf16/tpu_compiler_dump/llo/1771657700010690791-vadd"
         )
         self.sim.load_program_data({
-            "#operand0": operand_a,
-            "#operand1": operand_b,
+            "#operand0": convert_to_bf16_tile_layout(operand_a, self.sim.state.num_sublanes, self.sim.state.num_lanes),
+            "#operand1": convert_to_bf16_tile_layout(operand_b, self.sim.state.num_sublanes, self.sim.state.num_lanes),
         })
         self.sim.run()
 
@@ -97,12 +98,12 @@ class TpuTests(unittest.TestCase):
             8 * 128 * torch.bfloat16.itemsize,
             dtype=torch.bfloat16,
         )
-        result = result.reshape(8, 128)
+        result = convert_from_bf16_tile_layout(result, self.sim.state.num_sublanes, self.sim.state.num_lanes)
         golden_result = operand_a + operand_b
 
         self._check_result(result, golden_result, self.BF16_RTOL, self.BF16_ATOL)
 
-    def test_matmul_simple(self):
+    def testMatmulSimple(self):
         """Matmul C = A @ B with A (8,128), B (128,8) -> C (8,8). Refs scripts/run.py."""
         a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128)
         b = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(128, 8)
@@ -128,7 +129,7 @@ class TpuTests(unittest.TestCase):
 
         self._check_result(result_8x8, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
-    def test_lane_reduce(self):
+    def testLaneReduce(self):
         """Lane reduction: sum over columns of (8,128) input -> (8,). Refs scripts/run.py."""
         a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128)
         scalar_init = torch.tensor(0.0, dtype=torch.float32)

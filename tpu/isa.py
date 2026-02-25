@@ -4,6 +4,7 @@ import torch
 
 from .instruction import instr
 from .arch_state import ArchState
+from .tiling import convert_from_bf16_tile_layout, convert_to_bf16_tile_layout
 
 
 # === Address Loading Instructions ===
@@ -282,37 +283,48 @@ def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vpack.c.bf16")
 def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     reg1_or_imm, vsrc2_reg = params
-
     if reg1_or_imm.startswith("v"):
-        vsrc1_data = state.read_vreg(reg1_or_imm, dtype=torch.float32).to(torch.bfloat16)
+        vsrc1_data = state.read_vreg(reg1_or_imm, dtype=torch.float32)
     else:
         vsrc1_data = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.bfloat16) + float(reg1_or_imm)
-    vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32).to(torch.bfloat16)
-    packed_data = torch.cat([vsrc1_data.unsqueeze(-1), vsrc2_data.unsqueeze(-1)], dim=-1)
-    state.write_vreg(dest_reg, packed_data)
+    vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32)
+    packed_data = torch.cat([vsrc1_data.unsqueeze(0), vsrc2_data.unsqueeze(0)], dim=0) \
+        .to(torch.bfloat16) \
+        .reshape(state.num_sublanes, state.num_lanes, 2) \
+        .contiguous()
+    vdest_data = convert_to_bf16_tile_layout(packed_data, state.num_sublanes, state.num_lanes)
+    state.write_vreg(dest_reg, vdest_data)
 
 
 @instr("vunpack.c.l.bf16")
 def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    unpacked_data = vsrc_data.to(torch.float32)[:, 0:state.num_lanes]
-    state.write_vreg(dest_reg, unpacked_data)
+    unpacked_data = convert_from_bf16_tile_layout(vsrc_data, state.num_sublanes, state.num_lanes) \
+        .to(torch.float32) \
+        .reshape(2, state.num_sublanes, state.num_lanes) \
+        .contiguous()
+    unpacked_data_low = unpacked_data[0, :, :]
+    state.write_vreg(dest_reg, unpacked_data_low)
 
 
 @instr("vunpack.c.h.bf16")
 def vunpack_c_h_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    unpacked_data = vsrc_data.to(torch.float32)[:, state.num_lanes:]
-    state.write_vreg(dest_reg, unpacked_data)
+    unpacked_data = convert_from_bf16_tile_layout(vsrc_data, state.num_sublanes, state.num_lanes) \
+        .to(torch.float32) \
+        .reshape(2, state.num_sublanes, state.num_lanes) \
+        .contiguous()
+    unpacked_data_high = unpacked_data[1, :, :]
+    state.write_vreg(dest_reg, unpacked_data_high)
 
 
 @instr("vunpack.i.l.bf16")
 def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    unpacked_data = vsrc_data.to(torch.float32)[:, 0:state.num_lanes]
+    unpacked_data = vsrc_data.to(torch.float32).reshape(state.num_sublanes, 2, state.num_lanes)[:, 0, :].contiguous()
     state.write_vreg(dest_reg, unpacked_data)
 
 
@@ -324,8 +336,8 @@ def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
+    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
 
 
 @instr("vxpose.xlu0.b32.start")
@@ -333,8 +345,8 @@ def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
+    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
 
 
 @instr("vxpose.xlu0.b32.end")
@@ -342,10 +354,10 @@ def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
     # roll rightwards for a full tile
     state.xlu_buffer = state.xlu_buffer.roll(state.num_lanes, dims=1)
-    state.xlu_buffer[:, 0:num_lanes] = vsrc_data
+    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
 
 
 @instr("vpop.trf.xlu0")
