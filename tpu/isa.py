@@ -275,7 +275,6 @@ def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     vdest_data = vsrc_data.roll(shift_amount, dims=0)
     state.write_vreg(dest_reg, vdest_data)
-    # breakpoint()
 
 
 # === Tensor Packing/Unpacking Instructions ===
@@ -288,7 +287,7 @@ def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     else:
         vsrc1_data = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.bfloat16) + float(reg1_or_imm)
     vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32)
-    packed_data = torch.cat([vsrc1_data.unsqueeze(0), vsrc2_data.unsqueeze(0)], dim=0) \
+    packed_data = torch.cat([vsrc2_data.unsqueeze(0), vsrc1_data.unsqueeze(0)], dim=0) \
         .to(torch.bfloat16) \
         .reshape(state.num_sublanes, state.num_lanes, 2) \
         .contiguous()
@@ -324,6 +323,7 @@ def vunpack_c_h_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
 def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
+    # TODO: check correctness of this
     unpacked_data = vsrc_data.to(torch.float32).reshape(state.num_sublanes, 2, state.num_lanes)[:, 0, :].contiguous()
     state.write_vreg(dest_reg, unpacked_data)
 
@@ -333,11 +333,47 @@ def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
 @instr("vxpose.xlu0.b32.start.end")
 def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
+    """
+    Transpose the source register content and load it into the XLU unit.
+
+    The XLU buffer is a 128 x 16 array. Tensor registers are first transposed and then
+    shifted into the buffer from bottom to top (decreasing row index). The result
+    is read out from the top-most 8 rows from left to right out of the unit, to form the
+    leftmost 8 x 8 submatrix of the destination register, with rest of the elements in
+    the destination register set to zero. The rest of the content in the XLU is shifted
+    upwards. This effectively slides a 8 x 8 window downward over the buffer.
+
+    XLU buffer (128 x 16):
+            +--------+
+    row 0   |XXXXXXXX| -- >
+            |XXXXXXXX| -- >  (8 x 8) submatrix
+            |XXXXXXXX| -- >
+    row 7   |XXXXXXXX| -- >
+            +--------+
+    row 8   |        |
+            |        |
+            |        |  ^
+            |        |  |
+            |        |  |
+            |  XLU   |  |
+            | Buffer |  |
+            |        |  |
+            |        |  |
+            |        |  |
+            |        |
+    row 127 |        |
+            +--------+
+            |        |
+            |        |
+             ^ ^ ^ ^
+             | | | |
+            (128 x 8) transposed matrix register
+    """
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
 
 
 @instr("vxpose.xlu0.b32.start")
@@ -345,8 +381,8 @@ def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
 
 
 @instr("vxpose.xlu0.b32.end")
@@ -354,40 +390,20 @@ def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
     vsrc_reg, num_lanes = params
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
+    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     # roll rightwards for a full tile
-    state.xlu_buffer = state.xlu_buffer.roll(state.num_lanes, dims=1)
-    state.xlu_buffer[:, 0:num_lanes].view(torch.uint8)[:] = vsrc_data
+    state.xlu_buffer = state.xlu_buffer.roll(-state.num_lanes, dims=0)
+    state.xlu_buffer[state.num_lanes:state.num_lanes+num_lanes, :] = vsrc_data.transpose(0, 1)
 
 
 @instr("vpop.trf.xlu0")
 def vpop_trf_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """
-    Pop the left 8x8 square from the XLU buffer, transpose it, and load it to the destination register.
-    All other elements in the destination register are set to zero.
-
-    The XLU buffer is a 16 x 128 array. Tensor registers are first transposed and then
-    shifted into the buffer from left to right (increasing column index). The result
-    is always read out from the bottom-left 8x8 square, effectively sliding this
-    window downward over time.
-
-    XLU buffer (16 x 128):
-
-            cols 0-7             cols 8-255
-            +--------+------------------------------------------+
-        --> |XXXXXXXX|                                          |
-        --> |XXXXXXXX|             XLU Buffer                   |
-        --> |XXXXXXXX|                                          |
-        --> |XXXXXXXX|                                          |
-            +--------+------------------------------------------+
-             | | | |
-             V V V V
-         8x8 submatrix (bottom-left; popped, transposed, and written to dest)
     """
     result = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32)
-    result[:, 0:state.num_sublanes] = state.xlu_buffer[:, 0:state.num_sublanes].clone().transpose(0, 1)
-    state.xlu_buffer = state.xlu_buffer.roll(-state.num_sublanes, dims=1)
-    state.xlu_buffer[:, -state.num_sublanes:] = 0
+    result[:, 0:state.num_sublanes] = state.xlu_buffer[0:state.num_sublanes, :].clone()
+    state.xlu_buffer = state.xlu_buffer.roll(-state.num_sublanes, dims=0)
+    state.xlu_buffer[-state.num_sublanes:, :] = 0
     state.write_vreg(dest_reg, result)
 
 
