@@ -1,0 +1,89 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %7 = vsyncpa [#allocation3], 0  ;;  %s225_s0 = inlined_call_operand.hbm [shape: bf16[8,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s226_s1 = inlined_call_operand.hbm [shape: bf16[8,128], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s227_s2 = inlined_call_operand.hbm [shape: f32[8,8], index: 2, kind: output, shape index: {}] /* operand 2 */ } /* entry bundle: %matmul_bf16_rhs_transpose = custom-call(%Arg_0.1, %Arg_1.2) */
+   0x1   :  { %8 = vsyncpa [#allocation6], 0 }
+   0x2   :  { %9 = vsyncpa [#allocation4], 0  ;;  %s15_s11 = sshll.u32 %s225_s0, 4  ;;  %s198_s12 = smov [#allocation2] /* materialized constant */  ;;  %s16_s11 = int_to_ptr.hbm [resolvable:$true] %s15_s11 }
+   0x3   :  { %s17_s13 = sshll.u32 %s198_s12, 4  ;;  %s26_s16 = sshll.u32 %s226_s1, 4  ;;  %s18_s13 = int_to_ptr.vmem [resolvable:$true] %s17_s13  ;;  %s27_s16 = int_to_ptr.hbm [resolvable:$true] %s26_s16 }
+   0x4   :  { %20 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s16_s11, /*size_in_granules=*/64, /*vmem=*/%s18_s13, /*dst_syncflagno=*/[#allocation3] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 2048 */ }
+   0x5   :  { %s199_s17 = smov [#allocation5] /* materialized constant */ }
+   0x6   :  { %s28_s18 = sshll.u32 %s199_s17, 4  ;;  %s29_s18 = int_to_ptr.vmem [resolvable:$true] %s28_s18 }
+   0x7   :  { %31 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s27_s16, /*size_in_granules=*/64, /*vmem=*/%s29_s18, /*dst_syncflagno=*/[#allocation6] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 2048 */ }
+   0x8   :  { %192 = dma.done.wait [#allocation3], 64 /* pipeline-emitter-dma-wait */ }
+   0x9   :  { %193 = vsyncadd [#allocation3], 4294967232 }
+   0xa   :  { %194 = dma.done.wait [#allocation6], 64 /* pipeline-emitter-dma-wait */ }
+   0xb   :  { %195 = vsyncadd [#allocation6], 4294967232  ;;  %v42_v0 = vld [vmem:[#allocation5] sm:$0xf]  ;;  %v40_v18 = vld [vmem:[#allocation2] sm:$0xf] }
+   0xc   :  { %v43_v1 = vunpack.c.l.bf16 %v42_v0  ;;  %v41_v19 = vunpack.c.l.bf16 %v40_v18  ;;  %s200_s0 = smov [#allocation7] /* materialized constant */  ;;  %s105_s21 = sshll.u32 %s227_s2, 4  ;;  %vm96_vm0 = vcmask 64512 /* [0:7,0:7] */  ;;  %s106_s21 = int_to_ptr.hbm [resolvable:$true] %s105_s21 }
+   0xd   :  { %s103_s1 = sshll.u32 %s200_s0, 4  ;;  %s104_s1 = int_to_ptr.vmem [resolvable:$true] %s103_s1 }
+   0xe   :  { %44 = vxpose.xlu0.b32.start.end [1/1] (short) /*vx=*/%v43_v1, /*width=*/128 }
+   0xf   :  { %v60_v2 = vpop.trf.xlu0 }
+  0x10   :  { %v61_v3 = vpop.trf.xlu0 }
+  0x11   :  { %v62_v4 = vpop.trf.xlu0 }
+  0x12   :  { %v63_v5 = vpop.trf.xlu0 }
+  0x13   :  { %v64_v6 = vpop.trf.xlu0 }
+  0x14   :  { %v65_v7 = vpop.trf.xlu0 }
+  0x15   :  { %v66_v8 = vpop.trf.xlu0 }
+  0x16   :  { %v67_v9 = vpop.trf.xlu0 }
+  0x17   :  { %v68_v10 = vpop.trf.xlu0 }
+  0x18   :  { %v69_v11 = vpop.trf.xlu0 }
+  0x19   :  { %v70_v12 = vpop.trf.xlu0 }
+  0x1a   :  { %v71_v13 = vpop.trf.xlu0 }
+  0x1b   :  { %v72_v14 = vpop.trf.xlu0 }
+  0x1c   :  { %v73_v15 = vpop.trf.xlu0 }
+  0x1d   :  { %v74_v16 = vpop.trf.xlu0 }
+  0x1e   :  { %v75_v17 = vpop.trf.xlu0 }
+  0x1f   :  { %76 = vmatpush.msra.mxu0 %v75_v17 }
+  0x20   :  { %77 = vmatpush.msra.mxu0 %v74_v16 }
+  0x21   :  { %78 = vmatpush.msra.mxu0 %v73_v15 }
+  0x22   :  { %79 = vmatpush.msra.mxu0 %v72_v14 }
+  0x23   :  { %80 = vmatpush.msra.mxu0 %v71_v13 }
+  0x24   :  { %81 = vmatpush.msra.mxu0 %v70_v12 }
+  0x25   :  { %82 = vmatpush.msra.mxu0 %v69_v11 }
+  0x26   :  { %83 = vmatpush.msra.mxu0 %v68_v10 }
+  0x27   :  { %84 = vmatpush.msra.mxu0 %v67_v9 }
+  0x28   :  { %85 = vmatpush.msra.mxu0 %v66_v8 }
+  0x29   :  { %86 = vmatpush.msra.mxu0 %v65_v7 }
+  0x2a   :  { %87 = vmatpush.msra.mxu0 %v64_v6 }
+  0x2b   :  { %88 = vmatpush.msra.mxu0 %v63_v5 }
+  0x2c   :  { %89 = vmatpush.msra.mxu0 %v62_v4 }
+  0x2d   :  { %90 = vmatpush.msra.mxu0 %v61_v3 }
+  0x2e   :  { %91 = vmatpush.msra.mxu0 %v60_v2 }
+  0x2f   :  { %92 = vmatmul.f32.vlgmr.msra.gmra.mxu0 %v41_v19 }
+  0x30   :  { %v93_v20 = vpop.f32.mrf.mxu0 }
+  0x31   :  { %97 = vst.msk [vmem:[#allocation7] sm:$0xff] /*vm=*/%vm96_vm0, /*vst_source=*/%v93_v20 }
+  0x32   :  { %108 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s104_s1, /*size_in_granules=*/128, /*hbm=*/%s106_s21, /*dst_syncflagno=*/[#allocation4] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+  0x33   :  { %196 = dma.done.wait [#allocation4], 128 /* pipeline-emitter-dma-wait */ }
+  0x34   :  { %197 = vsyncadd [#allocation4], 4294967168 }
+  0x35   :  { %113 = vsyncpa [#allocation3], 1 }
+  0x36   :  { %114 = vsyncpa [#allocation6], 1 }
+  0x37   :  { %115 = vsyncpa [#allocation4], 1 } /* exit bundle: %matmul_bf16_rhs_transpose = custom-call(%Arg_0.1, %Arg_1.2) */
