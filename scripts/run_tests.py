@@ -3,7 +3,13 @@ import unittest
 import torch
 
 from tpu.sim import Simulator
-from tpu.tiling import convert_to_bf16_tile_layout, convert_from_bf16_tile_layout
+from tpu.tiling import (
+    convert_to_bf16_tile_layout,
+    convert_from_bf16_tile_layout,
+    pack_bf16_register,
+    unpack_bf16_register,
+    pack_bf16_mxu_rhs_coalesced,
+)
 
 
 class TpuTests(unittest.TestCase):
@@ -57,32 +63,33 @@ class TpuTests(unittest.TestCase):
 
         self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
-    # def test_vector_add(self):
-    #     operand_a = torch.ones(16, 256, dtype=torch.float32) * 2
-    #     operand_b = torch.ones(16, 256, dtype=torch.float32)
+    @unittest.skip("Requires scalar control-flow ISA ops not modeled yet (predication/branch/lea variants).")
+    def testVectorAdd(self):
+        operand_a = torch.ones(16, 256, dtype=torch.float32) * 2
+        operand_b = torch.ones(16, 256, dtype=torch.float32)
 
-    #     self.sim.load_program(
-    #         "./tests/vector_add/tpu_compiler_dump/llo/1771655414213212876-vadd"
-    #     )
-    #     self.sim.load_program_data({
-    #         "#operand0": operand_a,
-    #         "#operand1": operand_b,
-    #     })
-    #     self.sim.run()
+        self.sim.load_program(
+            "./tests/vector_add/tpu_compiler_dump/llo/1771655414213212876-vadd"
+        )
+        self.sim.load_program_data({
+            "#operand0": operand_a,
+            "#operand1": operand_b,
+        })
+        self.sim.run()
 
-    #     result = self.sim.state.read_hbm(
-    #         self.sim.symbol_table["#operand2"].base_address,
-    #         16 * 256 * torch.float32.itemsize,
-    #         dtype=torch.float32,
-    #     )
-    #     result = result.reshape(16, 256)
-    #     golden_result = operand_a + operand_b
+        result = self.sim.state.read_hbm(
+            self.sim.symbol_table["#operand2"].base_address,
+            16 * 256 * torch.float32.itemsize,
+            dtype=torch.float32,
+        )
+        result = result.reshape(16, 256)
+        golden_result = operand_a + operand_b
 
-    #     self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
+        self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
     def testVectorAddBf16(self):
-        operand_a = torch.arange(8*128, dtype=torch.bfloat16).reshape(4, 128, 2)
-        operand_b = torch.arange(8*128, dtype=torch.bfloat16).reshape(4, 128, 2)
+        operand_a = torch.arange(8 * 128, dtype=torch.bfloat16).reshape(8, 128)
+        operand_b = torch.arange(8 * 128, dtype=torch.bfloat16).reshape(8, 128)
 
         self.sim.load_program(
             "./tests/vector_add_bf16/tpu_compiler_dump/llo/1771657700010690791-vadd"
@@ -102,6 +109,28 @@ class TpuTests(unittest.TestCase):
         golden_result = operand_a + operand_b
 
         self._check_result(result, golden_result, self.BF16_RTOL, self.BF16_ATOL)
+
+    def testBf16TileLayout(self):
+        """Check TPU BF16 row-pair packing: (8,128) -> (4,128,2)."""
+        logical = torch.arange(8 * 128, dtype=torch.bfloat16).reshape(8, 128)
+        packed = convert_to_bf16_tile_layout(logical, self.sim.state.num_sublanes, self.sim.state.num_lanes)
+        packed_3d = packed.reshape(4, 128, 2)
+        restored = convert_from_bf16_tile_layout(packed, self.sim.state.num_sublanes, self.sim.state.num_lanes)
+
+        self.assertTrue(torch.equal(packed_3d[:, :, 0], logical[0::2, :]))
+        self.assertTrue(torch.equal(packed_3d[:, :, 1], logical[1::2, :]))
+        self.assertTrue(torch.equal(restored, logical))
+
+    def testBf16RegisterPackUnpack(self):
+        """Check BF16 low/high halves in one packed vector register image."""
+        low = torch.arange(8 * 128, dtype=torch.bfloat16).reshape(8, 128)
+        high = (torch.arange(8 * 128, dtype=torch.float32).reshape(8, 128) + 10000).to(torch.bfloat16)
+
+        packed = pack_bf16_register(low, high, self.sim.state.num_sublanes, self.sim.state.num_lanes)
+        low_out, high_out = unpack_bf16_register(packed, self.sim.state.num_sublanes, self.sim.state.num_lanes)
+
+        self.assertTrue(torch.equal(low_out, low))
+        self.assertTrue(torch.equal(high_out, high))
 
     def testMatmulSimple(self):
         """Matmul C = A @ B with A (8,128), B (128,8) -> C (8,8). Refs scripts/run.py."""
@@ -128,6 +157,54 @@ class TpuTests(unittest.TestCase):
         golden_result = a @ b
 
         self._check_result(result_8x8, golden_result, self.FP32_RTOL, self.FP32_ATOL)
+
+    def testMatmulBf16(self):
+        """Matmul C = A @ B with A (8,128), B (128,8) in BF16 -> C (8,8) in F32."""
+        a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128).to(torch.bfloat16)
+        b = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(128, 8).to(torch.bfloat16)
+
+        self.sim.load_program(
+            "./tests/matmul_bf16/tpu_compiler_dump/llo/1772449678630211370-matmul_bf16"
+        )
+        self.sim.load_program_data({
+            "#operand0": convert_to_bf16_tile_layout(a, self.sim.state.num_sublanes, self.sim.state.num_lanes),
+            # Operand1 follows the MXU RHS coalesced VMEM layout ([8,256] BF16 image).
+            "#operand1": pack_bf16_mxu_rhs_coalesced(b),
+        })
+        self.sim.run()
+
+        result = self.sim.state.read_hbm(
+            self.sim.symbol_table["#operand2"].base_address,
+            8 * 128 * torch.float32.itemsize,
+            dtype=torch.float32,
+        )
+        result_8x8 = result.reshape(8, 128)[:, 0:8]
+        golden_result = a.float() @ b.float()
+
+        self._check_result(result_8x8, golden_result, self.FP32_RTOL, self.FP32_ATOL)
+
+    def testMatmulBf16RhsTranspose(self):
+        """Matmul C = A @ B^T with A/B (8,128) in BF16 -> C (8,8) in F32."""
+        a = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128).to(torch.bfloat16)
+        b = torch.arange(0, 8 * 128, dtype=torch.float32).reshape(8, 128).to(torch.bfloat16)
+
+        self.sim.load_program(
+            "./tests/matmul_bf16_rhs_transpose/tpu_compiler_dump/llo/1772449809768374815-matmul_bf16_rhs_transpose"
+        )
+        self.sim.load_program_data({
+            "#operand0": convert_to_bf16_tile_layout(a, self.sim.state.num_sublanes, self.sim.state.num_lanes),
+            "#operand1": convert_to_bf16_tile_layout(b, self.sim.state.num_sublanes, self.sim.state.num_lanes),
+        })
+        self.sim.run()
+
+        result = self.sim.state.read_hbm(
+            self.sim.symbol_table["#operand2"].base_address,
+            8 * 128 * torch.float32.itemsize,
+            dtype=torch.float32,
+        ).reshape(8, 128)[:, 0:8]
+        golden_result = a.float() @ b.float().transpose(0, 1)
+
+        self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
     def testLaneReduce(self):
         """Lane reduction: sum over columns of (8,128) input -> (8,). Refs scripts/run.py."""

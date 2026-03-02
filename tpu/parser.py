@@ -147,12 +147,12 @@ class BundleParser:
     }
 
     @classmethod
-    def _inlined_call_operand_info(cls, rest: str) -> tuple[int, int, int] | None:
-        """Parse inlined_call_operand [shape: ..., index: ...] -> (base_address, size, index).
+    def _inlined_call_operand_info(
+        cls, rest: str
+    ) -> tuple[str, list[int], int, int] | None:
+        """Parse inlined_call_operand metadata.
 
-        Operands are stacked contiguously: operand 0 at 0x0, operand 1 at
-        sizeof(operand 0), etc. Returns (base_address_bytes, operand_size_bytes, index)
-        or None if not parseable.
+        Returns (dtype, dims, index, logical_size_bytes), or None if not parseable.
         """
         m = cls._INLINED_CALL_OPERAND_RE.search(rest)
         if not m:
@@ -162,20 +162,35 @@ class BundleParser:
         elem_bytes = cls._DTYPE_BYTES.get(dtype_str, 4)
         if not dims_str.strip():
             elem_count = 1
+            dims: list[int] = []
         else:
             dims = [int(d.strip()) for d in dims_str.split(",") if d.strip()]
             elem_count = 1
             for d in dims:
                 elem_count *= d
         operand_size = elem_count * elem_bytes
-        base_address = index * operand_size
-        return (base_address, operand_size, index)
+        return (dtype_str, dims, index, operand_size)
 
     @classmethod
     def _inlined_call_operand_base_address(cls, rest: str) -> int | None:
         """Compute HBM base address for inlined_call_operand. Returns byte address or None."""
         info = cls._inlined_call_operand_info(rest)
-        return info[0] if info else None
+        if info is None:
+            return None
+        _dtype, _dims, index, size = info
+        return index * size
+
+    @staticmethod
+    def _physical_vmem_operand_size(dtype_str: str, dims: list[int], logical_size: int) -> int:
+        """Return physical VMEM bytes for an inlined operand.
+
+        TPU BF16 RHS tiles used by MXU matmul are consumed through coalesced
+        load paths as full register images (4096 B), even for logical [K, 8]
+        tensors whose element payload is 2048 B.
+        """
+        if dtype_str == "bf16" and len(dims) == 2 and dims[1] == 8:
+            return max(logical_size, 4096)
+        return logical_size
 
     def _parse_arg_values(self, seg: str) -> list[str]:
         """Extract all arg values from a segment; returns list for vld/vst compound args."""
@@ -220,12 +235,15 @@ class BundleParser:
 
         # vst: /*vst_source=*/%v18_v2 -> source register
         if "vst_source" in seg or "/*vst_source=*/" in seg:
-            var_match = re.search(r"%([\w]+)", seg)
-            if var_match:
-                var = var_match.group(1)
-                reg = var.rsplit("_", 1)[1] if "_" in var else ""
-                if reg:
-                    values.append(reg)
+            src_match = re.search(r"vst_source=\*/\s*%([\w]+)", seg)
+            if src_match is None:
+                all_vars = re.findall(r"%([\w]+)", seg)
+                var = all_vars[-1] if all_vars else ""
+            else:
+                var = src_match.group(1)
+            reg = var.rsplit("_", 1)[1] if "_" in var else ""
+            if reg:
+                values.append(reg)
 
         if values:
             return values
@@ -304,7 +322,7 @@ class BundleParser:
         if opcode.startswith("inlined_call_operand."):
             info = self._inlined_call_operand_info(rest)
             if info is not None:
-                _base, _size, index = info
+                _dtype, _dims, index, _size = info
                 return Instruction(
                     dest_reg=dest_reg, opcode=opcode, args=[f"#operand{index}"]
                 )
@@ -407,11 +425,12 @@ class BundleParser:
             info = self._inlined_call_operand_info(rest)
             if info is None:
                 continue
-            _base, size, index = info
+            dtype_str, dims, index, size = info
             if "inlined_call_operand.hbm" in part:
                 space = "hbm"
             elif "inlined_call_operand.vmem" in part:
                 space = "vmem"
+                size = self._physical_vmem_operand_size(dtype_str, dims, size)
             else:
                 space = "smem"  # <no memory space>
             operands.append((index, size, space))

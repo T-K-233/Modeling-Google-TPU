@@ -4,7 +4,7 @@ import torch
 
 from .instruction import instr
 from .arch_state import ArchState
-from .tiling import convert_from_bf16_tile_layout, convert_to_bf16_tile_layout
+from .tiling import pack_bf16_register, unpack_bf16_register
 
 
 # === Address Loading Instructions ===
@@ -36,14 +36,14 @@ def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str,
 
 @instr("int_to_ptr.hbm")
 def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_addr_reg, = params
+    src_addr_reg = params[-1]
     addr = state.read_xreg(src_addr_reg)
     state.write_xreg(dest_reg, addr)
 
 
 @instr("int_to_ptr.vmem")
 def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_addr_reg, = params
+    src_addr_reg = params[-1]
     addr = state.read_xreg(src_addr_reg)
     state.write_xreg(dest_reg, addr)
 
@@ -52,26 +52,31 @@ def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
 @instr("vsyncpa")
 def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
-    addr, value = params
-    addr = int(addr, 16) if addr.startswith("0x") else int(addr)
-    state.write_sflag(addr, int(value))
+    addr, value = params[-2:]
+    addr_val = state.read_xreg(addr) if addr.startswith("s") else (int(addr, 16) if addr.startswith("0x") else int(addr))
+    if not (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize):
+        return
+    state.write_sflag(addr_val, int(value))
 
 
 @instr("vsyncadd")
 def vsyncadd(state: ArchState, _: str, params: dict[str, Any]):
-    addr, value = params
-    addr = int(addr, 16) if addr.startswith("0x") else int(addr)
-    flag_value = state.read_sflag(addr)
+    addr, value = params[-2:]
+    addr_val = state.read_xreg(addr) if addr.startswith("s") else (int(addr, 16) if addr.startswith("0x") else int(addr))
+    if not (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize):
+        return
+    flag_value = state.read_sflag(addr_val)
     flag_value = (flag_value + int(value)) % 256
-    state.write_sflag(addr, flag_value)
+    state.write_sflag(addr_val, flag_value)
 
 
 # === DMA Transfer (HBM <-> VMEM) Instructions ===
 
 @instr("dma.hbm_to_vmem")
 def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
-    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params
-    state.write_sflag(int(sync_flag), 1)
+    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params[-4:]
+    sync_flag_addr = state.read_xreg(sync_flag) if sync_flag.startswith("s") else int(sync_flag)
+    state.write_sflag(sync_flag_addr, 1)
 
     src_addr_granules = state.read_xreg(src_addr_reg)
     dest_addr_granules = state.read_xreg(dest_addr_reg)
@@ -86,8 +91,9 @@ def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
 
 @instr("dma.vmem_to_hbm")
 def dma_vmem_to_hbm(state: ArchState, _: str, params: dict[str, Any]):
-    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params
-    state.write_sflag(int(sync_flag), 1)
+    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = params[-4:]
+    sync_flag_addr = state.read_xreg(sync_flag) if sync_flag.startswith("s") else int(sync_flag)
+    state.write_sflag(sync_flag_addr, 1)
 
     src_addr_granules = state.read_xreg(src_addr_reg)
     dest_addr_granules = state.read_xreg(dest_addr_reg)
@@ -105,9 +111,7 @@ def dma_done_wait(state: ArchState, dest_reg: str, params: dict[str, Any]):
     # TODO: this does not stall the execution right now
     # it simply clears the sync flag
     # need to implement this eventually
-    sync_flag, size_in_granules = params
-    sflag_value = state.read_sflag(int(sync_flag))
-    # print(f"  SFlag value at address {sync_flag}: {sflag_value}")
+    return
 
 
 # === Scalar Memory Load/Store Instructions ===
@@ -115,16 +119,20 @@ def dma_done_wait(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("smov")
 def smov(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """ Move the base address of a memory region to a scalar register. """
-    address, = params
-    address = int(address, 16) if address.startswith("0x") else int(address)
-    state.write_xreg(dest_reg, address)
+    # Some dumps include a predicate operand first (e.g. smov p0, s1).
+    src = params[-1]
+    if src.startswith("s"):
+        value = state.read_xreg(src)
+    else:
+        value = int(src, 16) if src.startswith("0x") else int(src)
+    state.write_xreg(dest_reg, value)
 
 
 # === SALU Instructions ===
 
 @instr("sshll.u32")
 def sshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    src_reg, imm = params
+    src_reg, imm = params[-2:]
     state.write_xreg(dest_reg, state.read_xreg(src_reg) << int(imm))
 
 
@@ -184,7 +192,10 @@ def vst(state: ArchState, _: str, params: dict[str, Any]):
     """ Vector store from a vector register to VMEM. """
     address, sublane_mask, vsrc_reg = params  # optional middle arg: mask (sm:$0xN)
     data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    address = int(address, 16) if address.startswith("0x") else int(address)
+    if address.startswith("s"):
+        address = state.read_xreg(address)
+    else:
+        address = int(address, 16) if address.startswith("0x") else int(address)
 
     if sublane_mask != "255":
         mask_val = int(sublane_mask)
@@ -219,7 +230,10 @@ def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """ Vector store from a vector register to VMEM with sublane masking. """
     address, sublane_mask, vsrc_reg = params
     data = state.read_vreg(vsrc_reg)
-    address = int(address, 16) if address.startswith("0x") else int(address)
+    if address.startswith("s"):
+        address = state.read_xreg(address)
+    else:
+        address = int(address, 16) if address.startswith("0x") else int(address)
 
     if sublane_mask != "255":
         mask_val = int(sublane_mask)
@@ -283,49 +297,46 @@ def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
 def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     reg1_or_imm, vsrc2_reg = params
     if reg1_or_imm.startswith("v"):
-        vsrc1_data = state.read_vreg(reg1_or_imm, dtype=torch.float32)
+        high = state.read_vreg(reg1_or_imm, dtype=torch.float32)
     else:
-        vsrc1_data = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.bfloat16) + float(reg1_or_imm)
-    vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32)
-    packed_data = torch.cat([vsrc2_data.unsqueeze(0), vsrc1_data.unsqueeze(0)], dim=0) \
-        .to(torch.bfloat16) \
-        .reshape(state.num_sublanes, state.num_lanes, 2) \
-        .contiguous()
-    vdest_data = convert_to_bf16_tile_layout(packed_data, state.num_sublanes, state.num_lanes)
-    state.write_vreg(dest_reg, vdest_data)
+        high = torch.full(
+            (state.num_sublanes, state.num_lanes),
+            fill_value=float(reg1_or_imm),
+            dtype=torch.float32,
+        )
+    low = state.read_vreg(vsrc2_reg, dtype=torch.float32)
+    packed = pack_bf16_register(
+        low=low.to(torch.bfloat16),
+        high=high.to(torch.bfloat16),
+        num_sublanes=state.num_sublanes,
+        num_lanes=state.num_lanes,
+    )
+    state.write_vreg(dest_reg, packed)
 
 
 @instr("vunpack.c.l.bf16")
 def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    unpacked_data = convert_from_bf16_tile_layout(vsrc_data, state.num_sublanes, state.num_lanes) \
-        .to(torch.float32) \
-        .reshape(2, state.num_sublanes, state.num_lanes) \
-        .contiguous()
-    unpacked_data_low = unpacked_data[0, :, :]
-    state.write_vreg(dest_reg, unpacked_data_low)
+    low, _ = unpack_bf16_register(vsrc_data, state.num_sublanes, state.num_lanes)
+    state.write_vreg(dest_reg, low.to(torch.float32))
 
 
 @instr("vunpack.c.h.bf16")
 def vunpack_c_h_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    unpacked_data = convert_from_bf16_tile_layout(vsrc_data, state.num_sublanes, state.num_lanes) \
-        .to(torch.float32) \
-        .reshape(2, state.num_sublanes, state.num_lanes) \
-        .contiguous()
-    unpacked_data_high = unpacked_data[1, :, :]
-    state.write_vreg(dest_reg, unpacked_data_high)
+    _, high = unpack_bf16_register(vsrc_data, state.num_sublanes, state.num_lanes)
+    state.write_vreg(dest_reg, high.to(torch.float32))
 
 
 @instr("vunpack.i.l.bf16")
 def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_reg, = params
-    vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
-    # TODO: check correctness of this
-    unpacked_data = vsrc_data.to(torch.float32).reshape(state.num_sublanes, 2, state.num_lanes)[:, 0, :].contiguous()
-    state.write_vreg(dest_reg, unpacked_data)
+    # Immediate BF16 values originate from scalar paths (e.g. vstv), where values
+    # are represented in FP32 lanes and then interpreted as BF16 for conversion.
+    unpacked_data = state.read_vreg(vsrc_reg, dtype=torch.float32).to(torch.bfloat16).to(torch.float32)
+    state.write_vreg(dest_reg, unpacked_data.contiguous())
 
 
 # === XLU Instructions ===
@@ -437,6 +448,24 @@ def vmatpush_msra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
 def vmatpush_xpose_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     src_vreg, = params
     state.push_mxu_weight_transpose("mxu0", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.xpose.msra.mxu1")
+def vmatpush_xpose_msra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight_transpose("mxu1", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.xpose.msra.mxu2")
+def vmatpush_xpose_msra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight_transpose("mxu2", state.read_vreg(src_vreg, dtype=torch.float32))
+
+
+@instr("vmatpush.xpose.msra.mxu3")
+def vmatpush_xpose_msra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
+    src_vreg, = params
+    state.push_mxu_weight_transpose("mxu3", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.bf16.xpose.msra.mxu0")

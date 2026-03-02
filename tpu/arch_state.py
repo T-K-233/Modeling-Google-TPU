@@ -89,10 +89,12 @@ class ArchState:
         self.smem.write(address, data.flatten().view(torch.uint8))
 
     def read_sflag(self, address: int) -> int:
-        return self.sflag.read(address, torch.uint32.itemsize).view(torch.uint32).item()
+        raw = self.sflag.read(address, torch.uint32.itemsize).view(torch.uint8).tolist()
+        return int.from_bytes(bytes(raw), byteorder="little", signed=False)
 
     def write_sflag(self, address: int, value: int) -> None:
-        self.sflag.write(address, torch.tensor([value], dtype=torch.uint32).view(torch.uint8))
+        raw = torch.tensor(list(int(value).to_bytes(4, byteorder="little", signed=False)), dtype=torch.uint8)
+        self.sflag.write(address, raw)
 
     def push_mxu_weight(self, mxu: str, weight: torch.Tensor) -> None:
         # assert weight.shape[0:2] == (self.num_sublanes, self.num_lanes)

@@ -24,6 +24,10 @@ Although they are called *vector* registers, VREGs on TPU v5e actually store 2D 
 
 For FP32 data, one VREG holds an `(8, 128)` matrix. Lower-precision formats such as BF16 and FP8 pack more values into the same physical register storage [[ref]](https://openxla.org/xla/tiled_layout#examples_of_tiling_formats).
 
+For the BF16 register layout modeled in this repository (including `(8,128)(2,1)` row-pair packing), see [bf16_tiled_layout.md](./bf16_tiled_layout.md).
+For BF16 MXU RHS coalesced VMEM preloading used by matmul kernels, see [bf16_mxu_rhs_coalesced_layout.md](./bf16_mxu_rhs_coalesced_layout.md).
+For visual diagrams (ASCII + generated heatmaps), see [data_layout_visualization.md](./data_layout_visualization.md).
+
 The distinction between **sublane** and **lane** is performance-critical: operations along the sublane dimension (the 8-element direction, within a column) are typically much cheaper than operations that cross lanes (the 128-element direction, within a row).
 
 Because the VREG layout is a fixed `(8, 128)` shape and cannot be further partitioned, storing smaller matrices can be highly inefficient. In the extreme case, storing a single scalar in one VREG uses only 1 out of 1024 FP32 slots, resulting in a utilization of about **0.1%**.
