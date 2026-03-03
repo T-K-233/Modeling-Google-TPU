@@ -35,6 +35,13 @@ class BundleParser:
     ALLOCATION_SUFFIX = "-post-delay-converter.txt"
     BUNDLE_SUFFIX = "-final_bundles.txt"
 
+    def __init__(self) -> None:
+        # EUP (elementwise unary pipeline) bookkeeping shared across bundles
+        # so that producer/consumer pairs spanning different bundle addresses
+        # can be lowered correctly.
+        self._eup_value_producers: dict[str, tuple[str, str]] = {}
+        self._ssa_token_to_vreg: dict[str, str] = {}
+
     # --- File discovery ---
 
     @staticmethod
@@ -96,10 +103,15 @@ class BundleParser:
 
     @staticmethod
     def _register_part(var: str) -> str:
-        """Extract register name: part after last underscore (e.g. %s114_s0 -> s0), else ""."""
+        """Extract register name.
+
+        For coalesced names (e.g. %s114_s0), return suffix after the final
+        underscore ("s0"). For temporary SSA ids without underscores (e.g.
+        %15), keep the full token so producer/consumer links are preserved.
+        """
         if "_" in var:
             return var.rsplit("_", 1)[1]
-        return ""
+        return var
 
     @staticmethod
     def _split_args_top_level(s: str) -> list[str]:
@@ -132,6 +144,8 @@ class BundleParser:
     )
     # sm: mask immediate for vld/vst, e.g. sm:$0xf or sm:$0xff
     _VMEM_SMASK_IMM_RE = re.compile(r"sm:\s*\$?(0x[0-9a-fA-F]+|\d+)\b")
+    # ss: sublane stride immediate, e.g. ss:$0
+    _VMEM_SSTRIDE_IMM_RE = re.compile(r"ss:\s*\$?(0x[0-9a-fA-F]+|\d+)\b")
 
     # inlined_call_operand: [shape: f32[8,128], index: 0, kind: input, ...]
     _INLINED_CALL_OPERAND_RE = re.compile(
@@ -232,6 +246,11 @@ class BundleParser:
                 imm_str = smask_match.group(1)
                 imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
                 values.append(str(imm_val))
+            sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
+            if sstride_match:
+                imm_str = sstride_match.group(1)
+                imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
+                values.append(f"ss={imm_val}")
 
         # vld/vst: vmem:[%sX_sY] or vmem:[%s165_s1 + $0x78] (register-based address)
         if not values and "vmem:" in seg:
@@ -251,6 +270,11 @@ class BundleParser:
                     imm_str = smask_match.group(1)
                     imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
                     values.append(str(imm_val))
+                sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
+                if sstride_match:
+                    imm_str = sstride_match.group(1)
+                    imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
+                    values.append(f"ss={imm_val}")
 
         # sld/sst: [smem:[#allocationN(_spill)] ...]
         if not values and "smem:" in seg:
@@ -294,11 +318,15 @@ class BundleParser:
         var_match = re.search(r"(!?)%([\w]+)", seg)
         if var_match:
             sign, var = var_match.group(1), var_match.group(2)
-            reg = var.rsplit("_", 1)[1] if "_" in var else ""
+            reg = var.rsplit("_", 1)[1] if "_" in var else var
             if sign and reg:
                 return f"!{reg}"
             return reg
-        if re.match(r"^-?\d+\.\d+$", seg):
+        if re.match(
+            r"^[+-]?(?:nan|inf|(?:\d+\.\d*|\d*\.\d+|\d+)(?:[eE][+-]?\d+)?)$",
+            seg,
+            re.IGNORECASE,
+        ):
             return seg
         if re.match(r"^-?(?:0x[0-9a-fA-F]+|\d+)$", seg):
             return seg
@@ -398,17 +426,108 @@ class BundleParser:
     # --- Bundle parsing ---
 
     def _parse_bundle_raw(self, payload: str) -> list[Instruction]:
-        """Parse bundle payload into instructions (no symbol resolution)."""
+        """Parse bundle payload into instructions (no symbol resolution).
+
+        This pass also performs light SSA->physical lowering for the EUP
+        (elementwise unary pipeline) instructions that the TPU compiler
+        now emits in two-stage form:
+
+          %t = vrcp.f32 %vX
+          %vy = vpop.eup %t
+
+        or
+
+          %t = vtanh.f32 %vX
+          %vy = vpop.eup %t
+
+        or
+
+          %t = vpow2.f32 %vX
+          %vy = vpop.eup %t
+
+        In the simulator we model these as single vector ops:
+
+          vrcp.f32 vy, [vX]
+          vtanh.f32 vy, [vX]
+
+        and for vpow2.f32 we follow the hardware behaviour and overwrite
+        the source register in-place, with vpop.eup acting as a plain
+        move from that source into its destination:
+
+          vpow2.f32 vX, [vX]
+          vpop.eup  vy, [vX]
+        """
         payload = re.sub(r"\s*\}\s*/\*.*\*/\s*$", "", payload.strip()).strip()
         if payload.endswith(" }"):
             payload = payload[:-2].strip()
         elif payload.endswith("}"):
             payload = payload[:-1].strip()
         result: list[Instruction] = []
+
+        # First pass: parse each instruction and collect EUP metadata.
+        raw_instrs: list[tuple[str, Instruction]] = []
         for part in (p.strip() for p in payload.split(";;") if p.strip()):
-            parsed = self._parse_one_instruction(part)
-            if parsed is not None:
-                result.append(parsed)
+            instr = self._parse_one_instruction(part)
+            if instr is None:
+                continue
+
+            # Extract SSA destination (if any) for EUP plumbing.
+            header = part.strip().lstrip("> {").strip().removesuffix(" }").strip()
+            m = re.match(r"^\s*%(\S+)\s*=", header)
+            ssa_dest = m.group(1) if m else None
+
+            opcode = instr.opcode
+
+            # Instructions whose SSA destination is not a real register (e.g. stores).
+            # For these, the LLO dest is just a token; the simulator ISA handler does
+            # not write back to a register, so we clear dest_reg to avoid inventing
+            # bogus registers like "62" for vector stores.
+            if opcode in ("vst", "vst.msk"):
+                instr.dest_reg = ""
+
+            # EUP value producers: vrcp / vtanh – effect realized at vpop.eup.
+            if ssa_dest and opcode in ("vrcp.f32", "vtanh.f32"):
+                src_reg = instr.args[0] if instr.args else ""
+                if src_reg:
+                    self._eup_value_producers[ssa_dest] = (opcode, src_reg)
+                # Do NOT emit this instruction now; it will be materialized
+                # as a concrete vector op when we see the matching vpop.eup.
+                continue
+
+            # vpow2.f32: overwrite source vector register in-place. The SSA
+            # destination is an EUP token, not a hardware register.
+            if ssa_dest and opcode == "vpow2.f32":
+                src_reg = instr.args[0] if instr.args else ""
+                if src_reg:
+                    self._ssa_token_to_vreg[ssa_dest] = src_reg
+                    instr.dest_reg = src_reg
+
+            raw_instrs.append((ssa_dest or "", instr))
+
+        # Second pass: lower vpop.eup and emit final instruction list.
+        for ssa_dest, instr in raw_instrs:
+            if instr.opcode == "vpop.eup":
+                if not instr.args:
+                    result.append(instr)
+                    continue
+                token = instr.args[-1]
+
+                # Case 1: token refers to a vrcp/vtanh EUP producer.
+                if token in self._eup_value_producers:
+                    prod_opcode, src_reg = self._eup_value_producers.pop(token)
+                    result.append(Instruction(opcode=prod_opcode, dest_reg=instr.dest_reg, args=[src_reg]))
+                    continue
+
+                # Case 2: token refers to a vpow2.f32 in-place producer.
+                if token in self._ssa_token_to_vreg:
+                    src_reg = self._ssa_token_to_vreg[token]
+                    result.append(Instruction(opcode="vpop.eup", dest_reg=instr.dest_reg, args=[src_reg]))
+                    continue
+
+                # Fallback: treat argument as already-physical.
+                result.append(instr)
+            else:
+                result.append(instr)
         return result
 
     def parse_bundle(
@@ -496,10 +615,18 @@ class BundleParser:
                 space = "smem"  # <no memory space>
             operands.append((index, size, space))
 
-        # Assign base addresses: HBM and VMEM stacked separately; smem (scalars) excluded
+        # Assign base addresses: HBM and VMEM stacked separately; smem (scalars) excluded.
+        # Start after already-materialized allocations in each space so
+        # inlined operands do not alias temporary buffers.
         operands.sort(key=lambda x: x[0])
-        hbm_offset = 0
-        vmem_offset = 0
+        hbm_offset = max(
+            (alloc.base_address + alloc.size for alloc in symbol_table.values() if alloc.space == "hbm"),
+            default=0,
+        )
+        vmem_offset = max(
+            (alloc.base_address + alloc.size for alloc in symbol_table.values() if alloc.space == "vmem"),
+            default=0,
+        )
         for index, size, space in operands:
             op_id = f"#operand{index}"
             if op_id not in symbol_table:
@@ -519,6 +646,9 @@ class BundleParser:
         self, partial_path: Path
     ) -> tuple[dict[str, Allocation], dict[int, list[Instruction]]]:
         """Parse program from partial path; resolves #allocation refs to base addresses."""
+        # Reset EUP bookkeeping for each new program.
+        self._eup_value_producers.clear()
+        self._ssa_token_to_vreg.clear()
         symbol_table = self._parse_symbol_table(partial_path)
 
         bundles: dict[int, list[Instruction]] = {}

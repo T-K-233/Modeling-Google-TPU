@@ -48,6 +48,67 @@ def _consume_predicate(state: ArchState, params: list[str]) -> tuple[bool, list[
     return state.read_preg(pred), params[1:]
 
 
+def _is_float_token(token: str) -> bool:
+    token = token.strip().lower()
+    if token in ("nan", "+nan", "-nan", "inf", "+inf", "-inf"):
+        return True
+    return any(ch in token for ch in (".", "e", "E"))
+
+
+def _parse_float(token: str) -> float:
+    token = token.strip().lower()
+    if token in ("nan", "+nan", "-nan"):
+        return float("nan")
+    if token in ("inf", "+inf"):
+        return float("inf")
+    if token == "-inf":
+        return float("-inf")
+    return float(token)
+
+
+def _full_u32(state: ArchState, value: int) -> torch.Tensor:
+    return torch.full(
+        (state.num_sublanes, state.num_lanes),
+        _as_u32(value),
+        dtype=torch.uint32,
+    )
+
+
+def _full_f32(state: ArchState, value: float) -> torch.Tensor:
+    return torch.full(
+        (state.num_sublanes, state.num_lanes),
+        float(value),
+        dtype=torch.float32,
+    )
+
+
+def _vector_operand_u32(state: ArchState, token: str) -> torch.Tensor:
+    if token.startswith("v") or token in state.vreg:
+        return state.read_vreg(token, dtype=torch.uint32).clone()
+    if _is_float_token(token):
+        return _full_f32(state, _parse_float(token)).view(torch.uint32)
+    return _full_u32(state, _parse_int(token))
+
+
+def _vector_operand_i32(state: ArchState, token: str) -> torch.Tensor:
+    return _vector_operand_u32(state, token).view(torch.int32)
+
+
+def _vector_operand_f32(state: ArchState, token: str) -> torch.Tensor:
+    if token.startswith("v") or token in state.vreg:
+        return state.read_vreg(token, dtype=torch.float32).clone()
+    if _is_float_token(token):
+        return _full_f32(state, _parse_float(token))
+    return _full_f32(state, float(_parse_int(token)))
+
+
+def _mask_operand(state: ArchState, token: str) -> torch.Tensor:
+    return state.read_vmreg(token) if token.startswith("vm") else torch.zeros(
+        (state.num_sublanes, state.num_lanes),
+        dtype=torch.bool,
+    )
+
+
 # === Address Loading Instructions ===
 
 @instr("inlined_call_operand.hbm")
@@ -132,8 +193,7 @@ def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
         return
     addr, value = rest[-2:]
     addr_val = _parse_operand(state, addr)
-    if not (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize):
-        return
+    assert (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize), f"SFLAG address out of bounds: {addr_val}"
     state.write_sflag(addr_val, _parse_int(value))
 
 
@@ -508,7 +568,11 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
     sublane mask (8-bit) zeroes out masked rows. Loads vreg_size bytes
     and reshapes to num_sublanes x lanes.
     """
-    sreg_or_imm, sublane_mask = params
+    sreg_or_imm = params[0]
+    sublane_mask = params[1] if len(params) > 1 else "255"
+    ss_stride = None
+    if len(params) > 2 and params[2].startswith("ss="):
+        ss_stride = int(params[2].split("=", 1)[1])
 
     if "+" in sreg_or_imm:
         reg, offset = sreg_or_imm.split("+", 1)
@@ -527,6 +591,10 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
         address = offset_val
 
     data = state.read_vmem(address, state.vreg_size).reshape(state.num_sublanes, -1)
+
+    # ss:$0 means all sublanes read from the same base row.
+    if ss_stride == 0:
+        data = data[0:1, :].repeat(state.num_sublanes, 1)
 
     if sublane_mask != "255":
         sublane_mask = int(sublane_mask)
@@ -551,39 +619,30 @@ def vst(state: ArchState, _: str, params: dict[str, Any]):
     Address (register or immediate), optional sublane mask (8-bit,
     bit i = 1 stores row i), and source register. Mask 0 stores nothing.
     """
-    address, sublane_mask, vsrc_reg = params  # optional middle arg: mask (sm:$0xN)
-    data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    address, sublane_mask, vsrc_reg = params[:3]  # optional middle arg: mask (sm:$0xN)
+    data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
     if address.startswith("s"):
         address = state.read_xreg(address)
     else:
         address = int(address, 16) if address.startswith("0x") else int(address)
 
-    if sublane_mask != "255":
-        mask_val = int(sublane_mask)
-        if mask_val == 0:
-            if state.verbose:
-                print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
-            return
-
-        # 8-bit mask: bit i = 1 keep row i, bit i = 0 skip row i.
-        row_mask = torch.tensor(
-            [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
-            dtype=torch.bool,
-            device=data.device,
-        ).unsqueeze(1)
-
-        # With the current assumption, mask bits are contiguous from lane 0.
-        highest_set_bit = mask_val.bit_length() - 1
-        rows_to_store = min(state.num_sublanes, highest_set_bit + 1)
-        data = data[:rows_to_store, :]
-
+    mask_val = int(sublane_mask)
+    if mask_val == 255:
+        state.write_vmem(address, data.flatten())
+        return
+    if mask_val == 0:
         if state.verbose:
-            print(
-                f"\033[90m  Store with mask '{mask_val}' -> "
-                f"{row_mask.flatten().int().tolist()} (rows [0:{rows_to_store - 1}] stored)\033[0m"
-            )
+            print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
+        return
 
-    state.write_vmem(address, data.flatten())
+    row_mask = torch.tensor(
+        [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
+        dtype=torch.bool,
+        device=data.device,
+    ).unsqueeze(1)
+    existing = state.read_vmem(address, state.vreg_size).reshape(state.num_sublanes, -1)
+    merged = torch.where(row_mask, data, existing)
+    state.write_vmem(address, merged.flatten())
 
 
 @instr("vst.msk")
@@ -592,39 +651,30 @@ def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Same as vst but with a dedicated mask form; bit i = 1 stores row i.
     """
-    address, sublane_mask, vsrc_reg = params
-    data = state.read_vreg(vsrc_reg)
+    address, sublane_mask, vsrc_reg = params[:3]
+    data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
     if address.startswith("s"):
         address = state.read_xreg(address)
     else:
         address = int(address, 16) if address.startswith("0x") else int(address)
 
-    if sublane_mask != "255":
-        mask_val = int(sublane_mask)
-        if mask_val == 0:
-            if state.verbose:
-                print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
-            return
-
-        # 8-bit mask: bit i = 1 keep row i, bit i = 0 skip row i.
-        row_mask = torch.tensor(
-            [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
-            dtype=torch.bool,
-            device=data.device,
-        ).unsqueeze(1)
-
-        # With the current assumption, mask bits are contiguous from lane 0.
-        highest_set_bit = mask_val.bit_length() - 1
-        rows_to_store = min(state.num_sublanes, highest_set_bit + 1)
-        data = data[:rows_to_store, :]
-
+    mask_val = int(sublane_mask)
+    if mask_val == 255:
+        state.write_vmem(address, data.flatten())
+        return
+    if mask_val == 0:
         if state.verbose:
-            print(
-                f"\033[90m  Store with mask '{mask_val}' -> "
-                f"{row_mask.flatten().int().tolist()} (rows [0:{rows_to_store - 1}] stored)\033[0m"
-            )
+            print("\033[90m  Store with mask '0' -> [] (no rows stored)\033[0m")
+        return
 
-    state.write_vmem(address, data)
+    row_mask = torch.tensor(
+        [(mask_val >> i) & 1 for i in range(state.num_sublanes)],
+        dtype=torch.bool,
+        device=data.device,
+    ).unsqueeze(1)
+    existing = state.read_vmem(address, state.vreg_size).reshape(state.num_sublanes, -1)
+    merged = torch.where(row_mask, data, existing)
+    state.write_vmem(address, merged.flatten())
 
 
 # === VPU Instructions ===
@@ -647,6 +697,281 @@ def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     result = vsrc1_data + vsrc2_data
     state.write_vreg(dest_reg, result)
+
+
+@instr("vmov")
+def vmov(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Broadcast scalar immediate/register value into a vector register."""
+    src, = params
+    if src.startswith("v") or src in state.vreg:
+        state.write_vreg(dest_reg, state.read_vreg(src, dtype=torch.float32))
+        return
+    if _is_float_token(src):
+        state.write_vreg(dest_reg, _full_f32(state, _parse_float(src)))
+        return
+    state.write_vreg(dest_reg, _full_u32(state, _parse_int(src)))
+
+
+@instr("vadd.s32")
+def vadd_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector add in 32-bit integer lanes with wraparound."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    rhs = _vector_operand_u32(state, b).to(torch.int64)
+    state.write_vreg(dest_reg, ((lhs + rhs) & U32_MASK).to(torch.uint32))
+
+
+@instr("vsub.s32")
+def vsub_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector subtract in 32-bit integer lanes with wraparound."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    rhs = _vector_operand_u32(state, b).to(torch.int64)
+    state.write_vreg(dest_reg, ((lhs - rhs) & U32_MASK).to(torch.uint32))
+
+
+@instr("vsub.f32")
+def vsub_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float subtraction."""
+    a, b = params
+    state.write_vreg(dest_reg, _vector_operand_f32(state, a) - _vector_operand_f32(state, b))
+
+
+@instr("vmul.f32")
+def vmul_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float multiplication."""
+    a, b = params
+    state.write_vreg(dest_reg, _vector_operand_f32(state, a) * _vector_operand_f32(state, b))
+
+
+@instr("vmul.u32")
+def vmul_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector 32-bit unsigned multiply with wraparound."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    rhs = _vector_operand_u32(state, b).to(torch.int64)
+    state.write_vreg(dest_reg, ((lhs * rhs) & U32_MASK).to(torch.uint32))
+
+
+@instr("vand.u32")
+def vand_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector bitwise AND on 32-bit lanes."""
+    a, b = params
+    state.write_vreg(dest_reg, _vector_operand_u32(state, a) & _vector_operand_u32(state, b))
+
+
+@instr("vor.u32")
+def vor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector bitwise OR on 32-bit lanes."""
+    if len(params) == 1:
+        # Unary form appears in compiler output for OR with implicit zero.
+        a = params[0]
+        state.write_vreg(dest_reg, _vector_operand_u32(state, a))
+        return
+    a, b = params
+    state.write_vreg(dest_reg, _vector_operand_u32(state, a) | _vector_operand_u32(state, b))
+
+
+@instr("vxor.u32")
+def vxor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector bitwise XOR on 32-bit lanes."""
+    a, b = params
+    state.write_vreg(dest_reg, _vector_operand_u32(state, a) ^ _vector_operand_u32(state, b))
+
+
+@instr("vshll.u32")
+def vshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector logical left shift on 32-bit lanes."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    sh = (_vector_operand_u32(state, b) & 31).to(torch.int64)
+    state.write_vreg(dest_reg, ((lhs << sh) & U32_MASK).to(torch.uint32))
+
+
+@instr("vshrl.u32")
+def vshrl_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector logical right shift on 32-bit lanes."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    sh = (_vector_operand_u32(state, b) & 31).to(torch.int64)
+    state.write_vreg(dest_reg, ((lhs >> sh) & U32_MASK).to(torch.uint32))
+
+
+@instr("vclz")
+def vclz(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector count-leading-zeros for 32-bit lanes."""
+    src, = params
+    values = _vector_operand_u32(state, src).flatten().tolist()
+    clz = [
+        (32 - int(v).bit_length()) if int(v) != 0 else 32
+        for v in values
+    ]
+    result = torch.tensor(clz, dtype=torch.uint32).reshape(state.num_sublanes, state.num_lanes)
+    state.write_vreg(dest_reg, result)
+
+
+@instr("vcvt.s32.f32")
+def vcvt_s32_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Convert vector int32 lanes to float32 lanes."""
+    src, = params
+    state.write_vreg(dest_reg, _vector_operand_i32(state, src).to(torch.float32))
+
+
+@instr("vcmp.lt.s32.totalorder")
+def vcmp_lt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector signed int compare (<), producing VM mask."""
+    a, b = params
+    state.write_vmreg(dest_reg, _vector_operand_i32(state, a) < _vector_operand_i32(state, b))
+
+
+@instr("vcmp.gt.s32.totalorder")
+def vcmp_gt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector signed int compare (>), producing VM mask."""
+    a, b = params
+    state.write_vmreg(dest_reg, _vector_operand_i32(state, a) > _vector_operand_i32(state, b))
+
+
+@instr("vcmp.eq.s32.totalorder")
+def vcmp_eq_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector signed int compare (==), producing VM mask."""
+    a, b = params
+    state.write_vmreg(dest_reg, _vector_operand_i32(state, a) == _vector_operand_i32(state, b))
+
+
+@instr("vcmp.le.f32.partialorder")
+def vcmp_le_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float compare (<=) with partial-order NaN handling."""
+    a, b = params
+    lhs = _vector_operand_f32(state, a)
+    rhs = _vector_operand_f32(state, b)
+    mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs <= rhs)
+    state.write_vmreg(dest_reg, mask)
+
+
+@instr("vcmp.eq.f32.partialorder")
+def vcmp_eq_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float compare (==) with partial-order NaN handling."""
+    a, b = params
+    lhs = _vector_operand_f32(state, a)
+    rhs = _vector_operand_f32(state, b)
+    mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs == rhs)
+    state.write_vmreg(dest_reg, mask)
+
+
+@instr("vc.u32")
+def vc_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector carry-out mask for 32-bit unsigned addition."""
+    a, b = params
+    lhs = _vector_operand_u32(state, a).to(torch.int64)
+    rhs = _vector_operand_u32(state, b).to(torch.int64)
+    state.write_vmreg(dest_reg, (lhs + rhs) > U32_MASK)
+
+
+@instr("vmor")
+def vmor(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Mask OR."""
+    a, b = params
+    state.write_vmreg(dest_reg, _mask_operand(state, a) | _mask_operand(state, b))
+
+
+@instr("vsel")
+def vsel(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector select by VM mask: mask ? on_true : on_false."""
+    if len(params) < 2:
+        return
+    vm_reg = params[0]
+    on_true = params[1]
+    on_false = params[2] if len(params) > 2 else params[1]
+    mask = _mask_operand(state, vm_reg)
+    true_bits = _vector_operand_u32(state, on_true)
+    false_bits = _vector_operand_u32(state, on_false)
+    selected = torch.where(mask, true_bits.to(torch.int64), false_bits.to(torch.int64)).to(torch.uint32)
+    state.write_vreg(dest_reg, selected)
+
+
+@instr("vlaneseq")
+def vlaneseq(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Lane index sequence [0..127] replicated across sublanes."""
+    seq = torch.arange(state.num_lanes, dtype=torch.int64).to(torch.uint32).unsqueeze(0).repeat(state.num_sublanes, 1)
+    state.write_vreg(dest_reg, seq)
+
+
+@instr("vset.pattern.permute.xlu0")
+def vset_pattern_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Record permute pattern token (functional model)."""
+    # Pattern metadata is not fully modeled; keep the latest token around so
+    # vperm/vpop.permute can coordinate temporary ids.
+    if dest_reg:
+        state.last_permute_token = dest_reg
+
+
+@instr("vperm.xlu0")
+def vperm_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Queue a source vector for a subsequent vpop.permute.xlu0."""
+    source = None
+    for token in reversed(params):
+        if token.startswith("v"):
+            source = token
+            break
+    if source is None:
+        return
+    token = dest_reg if dest_reg else f"perm_{len(state.permute_buffer)}"
+    state.permute_buffer[token] = state.read_vreg(source, dtype=torch.float32).clone()
+    state.last_permute_token = token
+
+
+@instr("vpop.permute.xlu0")
+def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pop permuted data from the functional permute buffer.
+
+    Current model covers the emitted TPU patterns used by these kernels:
+    source vectors of logical shape [8] are expanded into per-row broadcasts.
+    """
+    token = params[-1] if params else state.last_permute_token
+    if token is None or token not in state.permute_buffer:
+        state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
+        return
+    src = state.permute_buffer[token]
+    vec8 = src[0, :state.num_sublanes]
+    out = vec8.unsqueeze(1).repeat(1, state.num_lanes).contiguous()
+    state.write_vreg(dest_reg, out)
+
+
+@instr("vrcp.f32")
+def vrcp_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector reciprocal approximation (modeled as exact reciprocal)."""
+    src, = params
+    state.write_vreg(dest_reg, 1.0 / _vector_operand_f32(state, src))
+
+
+@instr("vpow2.f32")
+def vpow2_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector base-2 exponent."""
+    src, = params
+    state.write_vreg(dest_reg, torch.pow(2.0, _vector_operand_f32(state, src)))
+
+
+@instr("vpop.eup")
+def vpop_eup(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pop EUP pipeline value (modeled as identity)."""
+    assert params, "vpop.eup requires at least one parameter"
+    src, = params[-1:]
+    state.write_vreg(dest_reg, _vector_operand_f32(state, src))
+
+
+@instr("vweird.f32")
+def vweird_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Special-value detector for transcendental pipelines."""
+    src, = params
+    data = _vector_operand_f32(state, src)
+    state.write_vmreg(dest_reg, ~torch.isfinite(data))
+
+
+@instr("vtanh.f32")
+def vtanh_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector tanh."""
+    src, = params
+    state.write_vreg(dest_reg, torch.tanh(_vector_operand_f32(state, src)))
 
 
 @instr("vrot.slane")
@@ -787,6 +1112,7 @@ def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
+    state.xlu_pop_width = state.num_sublanes
 
 
 @instr("vxpose.xlu0.b32.start")
@@ -802,6 +1128,7 @@ def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
+    state.xlu_pop_width = state.num_sublanes
 
 
 @instr("vxpose.xlu0.b32.end")
@@ -815,9 +1142,10 @@ def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    # roll rightwards for a full tile
-    state.xlu_buffer = state.xlu_buffer.roll(-state.num_lanes, dims=0)
-    state.xlu_buffer[state.num_lanes:state.num_lanes+num_lanes, :] = vsrc_data.transpose(0, 1)
+    # For a start/end pair, append into the second half of the XLU staging
+    # buffer so subsequent vpop.trf can consume both halves sequentially.
+    state.xlu_buffer[state.num_lanes:state.num_lanes + num_lanes, :] = vsrc_data.transpose(0, 1)
+    state.xlu_pop_width = state.num_sublanes * 2
 
 
 @instr("vpop.trf.xlu0")
@@ -827,10 +1155,16 @@ def vpop_trf_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Reads the top 8x8 from the XLU buffer, writes to dest (left 8x8 of
     vreg), rolls the buffer up, and zeroes the vacated bottom rows.
     """
+    width = max(state.num_sublanes, int(state.xlu_pop_width))
+    width = min(width, state.xlu_buffer.shape[0], state.num_lanes)
     result = torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32)
-    result[:, 0:state.num_sublanes] = state.xlu_buffer[0:state.num_sublanes, :].clone()
-    state.xlu_buffer = state.xlu_buffer.roll(-state.num_sublanes, dims=0)
-    state.xlu_buffer[-state.num_sublanes:, :] = 0
+    window = state.xlu_buffer[0:width, :].contiguous()
+    if width == state.num_sublanes:
+        result[:, 0:width] = window
+    else:
+        result[:, 0:width] = window.transpose(0, 1).contiguous()
+    state.xlu_buffer = state.xlu_buffer.roll(-width, dims=0)
+    state.xlu_buffer[-width:, :] = 0
     state.write_vreg(dest_reg, result)
 
 
@@ -978,6 +1312,24 @@ def vmatmul_f32_vlgmr_msra_gmra_mxu3(state: ArchState, _: str, params: dict[str,
     src_vreg, = params
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu3", activation)
+
+
+@instr("vmatmul.msk.f32.vlgmr.msra.gmra.mxu0")
+def vmatmul_msk_f32_vlgmr_msra_gmra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
+    """Masked matrix multiply in MXU0.
+
+    The first operand is a VM mask selecting active lanes in the activation
+    tile; inactive lanes are zeroed before issuing matmul.
+    """
+    if len(params) == 1:
+        src_vreg = params[0]
+        activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    else:
+        vm_reg, src_vreg = params[-2:]
+        activation = state.read_vreg(src_vreg, dtype=torch.float32)
+        mask = _mask_operand(state, vm_reg)
+        activation = torch.where(mask, activation, torch.zeros_like(activation))
+    state.execute_mxu_matmul("mxu0", activation)
 
 
 @instr("vpop.f32.mrf.mxu0")

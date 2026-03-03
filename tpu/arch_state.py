@@ -18,6 +18,7 @@ class ArchState:
         self.sflag_size = 256  # 256 bytes (64 words)
         self.num_x_registers = 64
         self.num_p_registers = 64
+        self.num_vm_registers = 64
         self.num_v_registers = 64
 
         self.num_lanes = 128
@@ -42,12 +43,24 @@ class ArchState:
         for index in range(self.num_p_registers):
             self.preg[f"p{index}"] = False
 
+        self.vmreg: dict[str, torch.Tensor] = {}
+        for index in range(self.num_vm_registers):
+            self.vmreg[f"vm{index}"] = torch.zeros(
+                self.num_sublanes,
+                self.num_lanes,
+                dtype=torch.bool,
+            )
+
         self.vreg: dict[str, torch.Tensor] = {}
         for index in range(self.num_v_registers):
             self.vreg[f"v{index}"] = torch.zeros(
                 self.vreg_size,
                 dtype=torch.uint8,
             )
+
+        # Scratch space used by vperm/vpop.permute modeling.
+        self.permute_buffer: dict[str, torch.Tensor] = {}
+        self.last_permute_token: str | None = None
 
         self.weight_buffer: dict[str, torch.Tensor] = {}
         self.accumulator: dict[str, torch.Tensor] = {}
@@ -57,6 +70,7 @@ class ArchState:
 
         self.xlu_buffer: torch.Tensor = torch.zeros(2 * self.num_lanes, self.num_sublanes, dtype=torch.float32)
         """ XLU buffer: (2 x 128, 8) shift buffer """
+        self.xlu_pop_width = self.num_sublanes
 
     def read_xreg(self, src: str) -> int:
         return self.xreg[src]
@@ -70,7 +84,26 @@ class ArchState:
     def write_preg(self, dest: str, value: bool) -> None:
         self.preg[dest] = bool(value)
 
+    def read_vmreg(self, src: str) -> torch.Tensor:
+        assert src in self.vmreg, f"VMREG {src} not found"
+        return self.vmreg[src]
+
+    def write_vmreg(self, dest: str, value: torch.Tensor | bool) -> None:
+        if isinstance(value, bool):
+            value = torch.full(
+                (self.num_sublanes, self.num_lanes),
+                value,
+                dtype=torch.bool,
+            )
+        assert isinstance(value, torch.Tensor), "VM register write expects a tensor or bool"
+        assert value.shape == (self.num_sublanes, self.num_lanes), (
+            f"VM value shape mismatch: {tuple(value.shape)} != "
+            f"({self.num_sublanes}, {self.num_lanes})"
+        )
+        self.vmreg[dest] = value.to(torch.bool).contiguous()
+
     def read_vreg(self, src: str, dtype: torch.dtype = torch.float32) -> torch.Tensor:
+        assert src in self.vreg, f"VREG {src} not found"
         return (
             self.vreg[src]
             .view(dtype)
@@ -79,6 +112,7 @@ class ArchState:
 
     def write_vreg(self, dest: str, value: torch.Tensor) -> None:
         assert value.nbytes == self.vreg_size, f"Value size mismatch: {value.nbytes} != {self.vreg_size}"
+        assert dest in self.vreg, f"VREG {dest} not found"
         self.vreg[dest].view(value.dtype)[:] = value.flatten()
 
     def read_hbm(self, address: int, size: int, dtype: torch.dtype = torch.uint8) -> torch.Tensor:
