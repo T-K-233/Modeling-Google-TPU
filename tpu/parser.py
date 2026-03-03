@@ -29,7 +29,7 @@ class BundleParser:
     )
     # Matches: #allocation0 [shape = '...', space=vmem, size = 0x2000, ...] (stack3)
     _ALLOCATION_RE = re.compile(
-        r"^\s*(#allocation\d+)\s+\[.*?space\s*=\s*(\w+).*?size\s*=\s*(0x[0-9a-fA-F]+|\d+).*?\]"
+        r"^\s*(#allocation\d+(?:_[A-Za-z0-9]+)?)\s+\[.*?space\s*=\s*(\w+).*?size\s*=\s*(0x[0-9a-fA-F]+|\d+).*?\]"
     )
 
     ALLOCATION_SUFFIX = "-post-delay-converter.txt"
@@ -120,11 +120,15 @@ class BundleParser:
 
     # vmem: [#allocation0] or [#allocation0 + $0x8]
     _VMEM_ALLOC_RE = re.compile(
-        r"vmem:\s*\[(#allocation\d+)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
+        r"vmem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
     )
     # vmem: [%s165_s1] or [%s165_s1 + $0x78] (register-based address)
     _VMEM_REG_RE = re.compile(
         r"vmem:\s*\[%([\w]+)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
+    )
+    # smem: [#allocation8_spill] or [#allocation0 + $0x4]
+    _SMEM_ALLOC_RE = re.compile(
+        r"smem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
     )
     # sm: mask immediate for vld/vst, e.g. sm:$0xf or sm:$0xff
     _VMEM_SMASK_IMM_RE = re.compile(r"sm:\s*\$?(0x[0-9a-fA-F]+|\d+)\b")
@@ -197,6 +201,21 @@ class BundleParser:
         seg = re.sub(r"^/\*[^*]*\*/\s*", "", seg.strip())
         values: list[str] = []
 
+        pred_src_match = re.match(r"^\(\s*(!?)%([\w]+)\s*,\s*%([\w]+)\s*\)$", seg)
+        if pred_src_match:
+            pred_sign, pred_var, src_var = pred_src_match.groups()
+            pred_reg = self._register_part(pred_var)
+            src_reg = self._register_part(src_var)
+            values.append(f"!{pred_reg}" if pred_sign else pred_reg)
+            values.append(src_reg)
+            return values
+
+        pred_only_match = re.match(r"^\(\s*(!?)%([\w]+)\s*\)$", seg)
+        if pred_only_match:
+            pred_sign, pred_var = pred_only_match.groups()
+            pred_reg = self._register_part(pred_var)
+            return [f"!{pred_reg}" if pred_sign else pred_reg]
+
         # vld/vst: [vmem:[#allocation0] ...] or [vmem:[#allocation0 + $0x8] ...]
         vmem_match = self._VMEM_ALLOC_RE.search(seg)
         if vmem_match:
@@ -233,6 +252,23 @@ class BundleParser:
                     imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
                     values.append(str(imm_val))
 
+        # sld/sst: [smem:[#allocationN(_spill)] ...]
+        if not values and "smem:" in seg:
+            smem_match = self._SMEM_ALLOC_RE.search(seg)
+            if smem_match:
+                alloc_id = smem_match.group(1)
+                offset = smem_match.group(2)
+                if offset:
+                    offset_int = int(offset, 16) if offset.startswith("0x") else int(offset)
+                    values.append(f"{alloc_id}+{offset_int}")
+                else:
+                    values.append(alloc_id)
+                reg_matches = re.findall(r"%([\w]+)", seg)
+                if reg_matches:
+                    reg = self._register_part(reg_matches[-1])
+                    if reg:
+                        values.append(reg)
+
         # vst: /*vst_source=*/%v18_v2 -> source register
         if "vst_source" in seg or "/*vst_source=*/" in seg:
             src_match = re.search(r"vst_source=\*/\s*%([\w]+)", seg)
@@ -255,20 +291,24 @@ class BundleParser:
     @staticmethod
     def _parse_arg_value_simple(seg: str) -> str:
         """Extract single arg value for non-vld/vst segments."""
-        var_match = re.search(r"%([\w]+)", seg)
+        var_match = re.search(r"(!?)%([\w]+)", seg)
         if var_match:
-            var = var_match.group(1)
-            return var.rsplit("_", 1)[1] if "_" in var else ""
+            sign, var = var_match.group(1), var_match.group(2)
+            reg = var.rsplit("_", 1)[1] if "_" in var else ""
+            if sign and reg:
+                return f"!{reg}"
+            return reg
         if re.match(r"^-?\d+\.\d+$", seg):
             return seg
         if re.match(r"^-?(?:0x[0-9a-fA-F]+|\d+)$", seg):
             return seg
-        alloc_match = re.search(r"\[(#allocation\d+)\]", seg)
+        alloc_match = re.search(r"\[(#allocation\d+(?:_[A-Za-z0-9]+)?)\]", seg)
         if alloc_match:
             return alloc_match.group(1)
         # [#allocationN + $0xM] or [#allocationN + $M]
         alloc_offset_match = re.search(
-            r"\[(#allocation\d+)\s*\+\s*\$?(?:0x([0-9a-fA-F]+)|(\d+))\]", seg
+            r"\[(#allocation\d+(?:_[A-Za-z0-9]+)?)\s*\+\s*\$?(?:0x([0-9a-fA-F]+)|(\d+))\]",
+            seg,
         )
         if alloc_offset_match:
             alloc_id = alloc_offset_match.group(1)
@@ -285,11 +325,20 @@ class BundleParser:
     ) -> list[str]:
         """Replace #allocation refs (and #alloc+offset) with resolved addresses."""
         result: list[str] = []
+        def normalize_alloc_id(alloc_id: str) -> str:
+            if alloc_id in symbol_table:
+                return alloc_id
+            m = re.match(r"^(#allocation\d+)(?:_[A-Za-z0-9]+)?$", alloc_id)
+            if m and m.group(1) in symbol_table:
+                return m.group(1)
+            return alloc_id
         for a in args:
-            if a in symbol_table:
-                result.append(str(symbol_table[a].base_address))
-            elif re.match(r"^#allocation\d+\+\d+$", a):
+            alloc_id = normalize_alloc_id(a)
+            if alloc_id in symbol_table:
+                result.append(str(symbol_table[alloc_id].base_address))
+            elif re.match(r"^#allocation\d+(?:_[A-Za-z0-9]+)?\+\d+$", a):
                 alloc_id, offset_str = a.rsplit("+", 1)
+                alloc_id = normalize_alloc_id(alloc_id)
                 base = symbol_table[alloc_id].base_address if alloc_id in symbol_table else 0
                 result.append(str(base + int(offset_str)))
             else:
@@ -327,6 +376,18 @@ class BundleParser:
                     dest_reg=dest_reg, opcode=opcode, args=[f"#operand{index}"]
                 )
             # fall through to generic parsing if shape/index not found
+
+        if opcode == "sbr.rel":
+            args: list[str] = []
+            pred_match = re.search(r"(!?)%([\w]+)", rest)
+            if pred_match:
+                sign, pred_var = pred_match.groups()
+                pred_reg = self._register_part(pred_var)
+                args.append(f"!{pred_reg}" if sign else pred_reg)
+            target_match = re.search(r"target bundleno\s*=\s*(0x[0-9a-fA-F]+|\d+)", rest)
+            if target_match:
+                args.append(target_match.group(1))
+            return Instruction(dest_reg=dest_reg, opcode=opcode, args=args)
 
         arg_segments = self._split_args_top_level(rest)
         args: list[str] = []

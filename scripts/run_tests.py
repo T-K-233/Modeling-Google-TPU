@@ -63,7 +63,6 @@ class TpuTests(unittest.TestCase):
 
         self._check_result(result, golden_result, self.FP32_RTOL, self.FP32_ATOL)
 
-    @unittest.skip("Requires scalar control-flow ISA ops not modeled yet (predication/branch/lea variants).")
     def testVectorAdd(self):
         operand_a = torch.ones(16, 256, dtype=torch.float32) * 2
         operand_b = torch.ones(16, 256, dtype=torch.float32)

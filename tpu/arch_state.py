@@ -17,6 +17,7 @@ class ArchState:
         self.smem_size = 1 * (1 << 20)  # 1 MiB
         self.sflag_size = 256  # 256 bytes (64 words)
         self.num_x_registers = 64
+        self.num_p_registers = 64
         self.num_v_registers = 64
 
         self.num_lanes = 128
@@ -36,6 +37,10 @@ class ArchState:
         self.xreg: dict[str, int] = {}
         for index in range(self.num_x_registers):
             self.xreg[f"s{index}"] = index
+
+        self.preg: dict[str, bool] = {}
+        for index in range(self.num_p_registers):
+            self.preg[f"p{index}"] = False
 
         self.vreg: dict[str, torch.Tensor] = {}
         for index in range(self.num_v_registers):
@@ -58,6 +63,12 @@ class ArchState:
 
     def write_xreg(self, dest: str, value: int) -> None:
         self.xreg[dest] = value
+
+    def read_preg(self, src: str) -> bool:
+        return self.preg[src]
+
+    def write_preg(self, dest: str, value: bool) -> None:
+        self.preg[dest] = bool(value)
 
     def read_vreg(self, src: str, dtype: torch.dtype = torch.float32) -> torch.Tensor:
         return (

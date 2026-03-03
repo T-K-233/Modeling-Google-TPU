@@ -50,6 +50,7 @@ class Simulator:
                 break
 
             bundle = self.program[self.state.pc]
+            self.state.next_pc = self.state.pc + 1
             for uop in bundle:
                 opcode = uop.opcode
 
@@ -64,6 +65,5 @@ class Simulator:
                     print(f">>> {opcode} \033[94m{uop.dest_reg if uop.dest_reg else '_'}, {uop.args}\033[0m")
                 IsaSpec.operations[opcode].apply_effect(self.state, uop.dest_reg, uop.args)
 
-            self.state.next_pc = self.state.pc + 1
             self.state.pc = self.state.next_pc
             self.cycles += 1
