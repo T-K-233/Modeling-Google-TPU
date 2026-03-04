@@ -13,13 +13,26 @@ import re
 from pathlib import Path
 
 
+def _kernel_pattern_to_regex(pattern: str) -> str:
+    """Convert a simple wildcard pattern (supports * and ?) to a regex fragment."""
+    parts: list[str] = []
+    for ch in pattern:
+        if ch == "*":
+            parts.append(".*")
+        elif ch == "?":
+            parts.append(".")
+        else:
+            parts.append(re.escape(ch))
+    return "".join(parts)
+
+
 def build_keep_patterns(kernel: str) -> tuple[re.Pattern[str], ...]:
-    """Build keep patterns. If kernel is given, restrict to that kernel and allow any NN before original."""
-    escaped = re.escape(kernel)
+    """Build keep patterns for the given kernel pattern (supports * and ? wildcards)."""
+    kernel_regex = _kernel_pattern_to_regex(kernel)
     return (
-        re.compile(rf"^\d+-{escaped}-\d+-original\.txt$"),
-        re.compile(rf"^\d+-{escaped}-\d+-post-delay-converter\.txt$"),
-        re.compile(rf"^\d+-{escaped}-\d+-final_bundles\.txt$"),
+        re.compile(rf"^\d+-{kernel_regex}-\d+-original\.txt$"),
+        re.compile(rf"^\d+-{kernel_regex}-\d+-post-delay-converter\.txt$"),
+        re.compile(rf"^\d+-{kernel_regex}-\d+-final_bundles\.txt$"),
     )
 
 
@@ -72,7 +85,11 @@ def main() -> None:
         "--kernel",
         metavar="NAME",
         required=True,
-        help="Kernel name to keep (e.g. reduce.7). Allows any NN before original, post-delay-converter, final_bundles.",
+        help=(
+            "Kernel name pattern to keep (e.g. fusion* or reduce.7). "
+            "Supports * and ? wildcards, and allows any NN before original, "
+            "post-delay-converter, final_bundles."
+        ),
     )
     parser.add_argument(
         "-n",
