@@ -26,5 +26,5 @@ jobs:
           pip install .
 
       - name: Run unit tests
-        run: python scripts/run_tests.py
+        run: python ./scripts/test_kernels.py
 

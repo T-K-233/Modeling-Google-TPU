@@ -109,6 +109,16 @@ def _vector_operand_i32(state: ArchState, token: Any) -> torch.Tensor:
     return _vector_operand_u32(state, token).view(torch.int32)
 
 
+def _vector_operand_u16(state: ArchState, token: Any) -> torch.Tensor:
+    if isinstance(token, str) and (token.startswith("v") or token in state.vreg):
+        return state.read_vreg(token, dtype=torch.uint16).clone()
+    return torch.full(
+        (state.num_sublanes, state.num_lanes * 2),
+        _parse_int(token) & 0xFFFF,
+        dtype=torch.uint16,
+    )
+
+
 def _vector_operand_f32(state: ArchState, token: Any) -> torch.Tensor:
     if isinstance(token, str) and (token.startswith("v") or token in state.vreg):
         return state.read_vreg(token, dtype=torch.float32).clone()
@@ -603,7 +613,7 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
         reg_val = state.read_xreg(reg.strip())
         offset = offset.strip()
         offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
-        offset_val = offset_val << 2  # TODO: not sure why need to multiply by 4
+        offset_val = offset_val << 9
         address = reg_val + offset_val
 
     elif sreg_or_imm.startswith("s"):
@@ -853,6 +863,15 @@ def vcvt_s32_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_vreg(dest_reg, _vector_operand_i32(state, src).to(torch.float32))
 
 
+@instr("vcvt.f32.f8e4m3b11")
+def vcvt_f32_f8e4m3b11(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Quantize float32 lanes to F8 and return packed 8-bit codes in u32 lanes."""
+    src = params["vs1"]
+    f8 = _vector_operand_f32(state, src).to(torch.float8_e4m3fn)
+    codes = f8.view(torch.uint8).to(torch.uint32).contiguous()
+    state.write_vreg(dest_reg, codes)
+
+
 @instr("vcmp.lt.s32.totalorder")
 def vcmp_lt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector signed int compare (<), producing VM mask."""
@@ -896,6 +915,28 @@ def vcmp_eq_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, 
     lhs = _vector_operand_f32(state, a)
     rhs = _vector_operand_f32(state, b)
     mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs == rhs)
+    state.write_vmreg(dest_reg, mask)
+
+
+@instr("vcmp.gt.f32.partialorder")
+def vcmp_gt_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float compare (>) with partial-order NaN handling."""
+    a = params["vs1"]
+    b = params["vs2"]
+    lhs = _vector_operand_f32(state, a)
+    rhs = _vector_operand_f32(state, b)
+    mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs > rhs)
+    state.write_vmreg(dest_reg, mask)
+
+
+@instr("vcmp.ne.f32.partialorder")
+def vcmp_ne_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Vector float compare (!=) with partial-order NaN handling."""
+    a = params["vs1"]
+    b = params["vs2"]
+    lhs = _vector_operand_f32(state, a)
+    rhs = _vector_operand_f32(state, b)
+    mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs != rhs)
     state.write_vmreg(dest_reg, mask)
 
 
@@ -1069,6 +1110,57 @@ def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
         num_lanes=state.num_lanes,
     )
     state.write_vreg(dest_reg, packed)
+
+
+@instr("vpack.c.b16")
+def vpack_c_b16(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pack two 32-bit sources into one 16-bit-packed register image."""
+    high_token = params["vs1"]
+    low = (_vector_operand_u32(state, params["vs2"]) & 0xFFFF).to(torch.uint16)
+    if not (isinstance(high_token, str) and high_token.startswith("v")) and _parse_int(high_token) == 0:
+        # Emitted f8 path: fold 8x128 source rows into 4 rows of 256 lanes.
+        packed = torch.zeros((state.num_sublanes, state.num_lanes * 2), dtype=torch.uint16)
+        for i in range(state.num_sublanes // 2):
+            packed[i, :state.num_lanes] = low[2 * i, :]
+            packed[i, state.num_lanes:] = low[2 * i + 1, :]
+        state.write_vreg(dest_reg, packed.contiguous())
+        return
+    high = (_vector_operand_u32(state, high_token) & 0xFFFF).to(torch.uint16)
+    packed = torch.cat([low, high], dim=1).contiguous()
+    state.write_vreg(dest_reg, packed)
+
+
+@instr("vpack.c.b8")
+def vpack_c_b8(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pack two 16-bit sources into one 8-bit-packed register image."""
+    high_token = params["vs1"]
+    low = (_vector_operand_u16(state, params["vs2"]) & 0xFF).to(torch.uint8)
+    if not (isinstance(high_token, str) and high_token.startswith("v")) and _parse_int(high_token) == 0:
+        # Emitted f8 path: fold 4x256 rows into 2 rows of 512 lanes.
+        packed = torch.zeros((state.num_sublanes, state.num_lanes * 4), dtype=torch.uint8)
+        packed[0, :state.num_lanes*2] = low[0, :]
+        packed[0, state.num_lanes*2:] = low[1, :]
+        packed[1, :state.num_lanes*2] = low[2, :]
+        packed[1, state.num_lanes*2:] = low[3, :]
+        state.write_vreg(dest_reg, packed.contiguous())
+        return
+    high = (_vector_operand_u16(state, high_token) & 0xFF).to(torch.uint8)
+    packed = torch.cat([low, high], dim=1).contiguous()
+    state.write_vreg(dest_reg, packed)
+
+
+@instr("vunpack.c.0.f8e4m3b11")
+def vunpack_c_0_f8e4m3b11(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Unpack lane-0 bytes of packed F8 data into float32 lanes."""
+    src = params["vs1"]
+    packed_u8 = state.read_vreg(src, dtype=torch.uint8)
+    # Packed F8 inputs are laid out as 1024 lane-0 bytes in the leading
+    # segment of the 4096-byte register image (commonly loaded with sm:$0x3).
+    lane0 = packed_u8.flatten()[: state.num_sublanes * state.num_lanes].reshape(
+        state.num_sublanes, state.num_lanes
+    ).contiguous()
+    unpacked = lane0.view(torch.float8_e4m3fn).to(torch.float32).contiguous()
+    state.write_vreg(dest_reg, unpacked)
 
 
 @instr("vunpack.c.l.bf16")

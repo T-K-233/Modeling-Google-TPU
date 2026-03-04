@@ -71,6 +71,8 @@ class BundleParser:
         "vcmp.eq.s32.totalorder",
         "vcmp.le.f32.partialorder",
         "vcmp.eq.f32.partialorder",
+        "vcmp.gt.f32.partialorder",
+        "vcmp.ne.f32.partialorder",
         "vc.u32",
         "vmor",
     }
@@ -78,11 +80,13 @@ class BundleParser:
         "vmov",
         "vclz",
         "vcvt.s32.f32",
+        "vcvt.f32.f8e4m3b11",
         "vrcp.f32",
         "vpow2.f32",
         "vpop.eup",
         "vweird.f32",
         "vtanh.f32",
+        "vunpack.c.0.f8e4m3b11",
         "vunpack.c.l.bf16",
         "vunpack.c.h.bf16",
         "vunpack.i.l.bf16",
@@ -170,7 +174,7 @@ class BundleParser:
             return ["vs1", "imm1"]
         if opcode == "vcmask":
             return ["imm1", "imm2"]
-        if opcode == "vpack.c.bf16":
+        if opcode in ("vpack.c.bf16", "vpack.c.b16", "vpack.c.b8"):
             return ["vs1", "vs2"]
         if opcode in (
             "vxpose.xlu0.b32.start.end",
@@ -579,7 +583,8 @@ class BundleParser:
                 alloc_id, offset_str = a.rsplit("+", 1)
                 alloc_id = normalize_alloc_id(alloc_id)
                 base = symbol_table[alloc_id].base_address if alloc_id in symbol_table else 0
-                result[key] = str(base + int(offset_str))
+                # LLO allocation offsets are in 512-byte address units.
+                result[key] = str(base + (int(offset_str) << 9))
             else:
                 result[key] = a
         return result

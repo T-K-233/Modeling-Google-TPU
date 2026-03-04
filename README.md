@@ -13,3 +13,10 @@ Comments, questions, corrections, and PRs are very welcomed!
 uv sync
 uv run ./scripts/run.py
 ```
+
+
+## Run tests
+
+```bash
+uv run ./scripts/test_kernels.py
+```
