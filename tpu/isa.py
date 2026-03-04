@@ -10,20 +10,26 @@ from .tiling import pack_bf16_register, unpack_bf16_register
 U32_MASK = 0xFFFFFFFF
 
 
-def _parse_int(token: str) -> int:
-    token = token.strip()
-    if token.startswith("$"):
-        token = token[1:]
-    if token.startswith("-0x"):
-        return -int(token[3:], 16)
-    if token.startswith("0x"):
-        return int(token, 16)
-    return int(token)
+def _parse_int(token: Any) -> int:
+    if isinstance(token, bool):
+        return int(token)
+    if isinstance(token, int):
+        return token
+    if isinstance(token, float):
+        return int(token)
+    text = str(token).strip()
+    if text.startswith("$"):
+        text = text[1:]
+    if text.startswith("-0x"):
+        return -int(text[3:], 16)
+    if text.startswith("0x"):
+        return int(text, 16)
+    return int(text)
 
 
-def _parse_operand(state: ArchState, token: str) -> int:
+def _parse_operand(state: ArchState, token: Any) -> int:
     """Resolve an operand symbol into either a register or an immediate value."""
-    if token.startswith("s"):
+    if isinstance(token, str) and token.startswith("s"):
         return state.read_xreg(token)
     return _parse_int(token)
 
@@ -37,33 +43,42 @@ def _as_i32(value: int) -> int:
     return value - (1 << 32) if value & (1 << 31) else value
 
 
-def _consume_predicate(state: ArchState, params: list[str]) -> tuple[bool, list[str]]:
-    if not params:
-        return True, params
-    pred = params[0]
-    if not (pred.startswith("p") or pred.startswith("!p")):
-        return True, params
-    if pred.startswith("!"):
-        return (not state.read_preg(pred[1:])), params[1:]
-    return state.read_preg(pred), params[1:]
-
-
-def _is_float_token(token: str) -> bool:
-    token = token.strip().lower()
-    if token in ("nan", "+nan", "-nan", "inf", "+inf", "-inf"):
+def _predicate_active(state: ArchState, params: dict[str, Any]) -> bool:
+    pred = params.get("pred")
+    if pred is None:
         return True
-    return any(ch in token for ch in (".", "e", "E"))
+    pred_token = str(pred)
+    if pred_token.startswith("!"):
+        return not state.read_preg(pred_token[1:])
+    if pred_token.startswith("p"):
+        return state.read_preg(pred_token)
+    return True
 
 
-def _parse_float(token: str) -> float:
-    token = token.strip().lower()
-    if token in ("nan", "+nan", "-nan"):
+def _is_float_token(token: Any) -> bool:
+    if isinstance(token, float):
+        return True
+    if isinstance(token, int):
+        return False
+    text = str(token).strip().lower()
+    if text in ("nan", "+nan", "-nan", "inf", "+inf", "-inf"):
+        return True
+    return any(ch in text for ch in (".", "e", "E"))
+
+
+def _parse_float(token: Any) -> float:
+    if isinstance(token, float):
+        return token
+    if isinstance(token, int):
+        return float(token)
+    text = str(token).strip().lower()
+    if text in ("nan", "+nan", "-nan"):
         return float("nan")
-    if token in ("inf", "+inf"):
+    if text in ("inf", "+inf"):
         return float("inf")
-    if token == "-inf":
+    if text == "-inf":
         return float("-inf")
-    return float(token)
+    return float(text)
 
 
 def _full_u32(state: ArchState, value: int) -> torch.Tensor:
@@ -82,28 +97,28 @@ def _full_f32(state: ArchState, value: float) -> torch.Tensor:
     )
 
 
-def _vector_operand_u32(state: ArchState, token: str) -> torch.Tensor:
-    if token.startswith("v") or token in state.vreg:
+def _vector_operand_u32(state: ArchState, token: Any) -> torch.Tensor:
+    if isinstance(token, str) and (token.startswith("v") or token in state.vreg):
         return state.read_vreg(token, dtype=torch.uint32).clone()
     if _is_float_token(token):
         return _full_f32(state, _parse_float(token)).view(torch.uint32)
     return _full_u32(state, _parse_int(token))
 
 
-def _vector_operand_i32(state: ArchState, token: str) -> torch.Tensor:
+def _vector_operand_i32(state: ArchState, token: Any) -> torch.Tensor:
     return _vector_operand_u32(state, token).view(torch.int32)
 
 
-def _vector_operand_f32(state: ArchState, token: str) -> torch.Tensor:
-    if token.startswith("v") or token in state.vreg:
+def _vector_operand_f32(state: ArchState, token: Any) -> torch.Tensor:
+    if isinstance(token, str) and (token.startswith("v") or token in state.vreg):
         return state.read_vreg(token, dtype=torch.float32).clone()
     if _is_float_token(token):
         return _full_f32(state, _parse_float(token))
     return _full_f32(state, float(_parse_int(token)))
 
 
-def _mask_operand(state: ArchState, token: str) -> torch.Tensor:
-    return state.read_vmreg(token) if token.startswith("vm") else torch.zeros(
+def _mask_operand(state: ArchState, token: Any) -> torch.Tensor:
+    return state.read_vmreg(token) if isinstance(token, str) and token.startswith("vm") else torch.zeros(
         (state.num_sublanes, state.num_lanes),
         dtype=torch.bool,
     )
@@ -118,7 +133,7 @@ def inlined_call_operand_hbm(state: ArchState, dest_reg: str, params: dict[str, 
     The parser populates args with the byte address; we store byte_addr // 16
     since subsequent sshll.u32 by 4 expects granule index.
     """
-    byte_addr, = params
+    byte_addr = params["imm1"]
     state.write_xreg(dest_reg, int(byte_addr))
 
 
@@ -129,7 +144,7 @@ def inlined_call_operand_vmem(state: ArchState, dest_reg: str, params: dict[str,
     Parser supplies the resolved byte address; we store it directly for
     use with vld/vst and scalar_lea.vmem.
     """
-    byte_addr, = params
+    byte_addr = params["imm1"]
     state.write_xreg(dest_reg, int(byte_addr))
 
 
@@ -140,7 +155,7 @@ def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str,
     Same convention as inlined_call_operand.hbm: parser passes byte address,
     we store byte_addr // 16 for sshll.u32 by 4.
     """
-    byte_addr, = params
+    byte_addr = params["imm1"]
     state.write_xreg(dest_reg, int(byte_addr))
 
 
@@ -157,7 +172,7 @@ def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
     In the simulator model this is a pass-through: we copy the value
     since addresses are tracked as raw integers.
     """
-    src_addr_reg = params[-1]
+    src_addr_reg = params["rs1"]
     addr = state.read_xreg(src_addr_reg)
     state.write_xreg(dest_reg, addr)
 
@@ -173,7 +188,7 @@ def int_to_ptr_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     In the simulator this is a pass-through copy.
     """
-    src_addr_reg = params[-1]
+    src_addr_reg = params["rs1"]
     addr = state.read_xreg(src_addr_reg)
     state.write_xreg(dest_reg, addr)
 
@@ -188,10 +203,10 @@ def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
     address. Used for sync flags (e.g. DMA completion), loop counters, and
     other scalar state shared across lanes. Bounds-checked against sflag_size.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    addr, value = rest[-2:]
+    addr = params["addr"]
+    value = params["rs1"]
     addr_val = _parse_operand(state, addr)
     assert (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize), f"SFLAG address out of bounds: {addr_val}"
     state.write_sflag(addr_val, _parse_int(value))
@@ -205,10 +220,10 @@ def vsyncadd(state: ArchState, _: str, params: dict[str, Any]):
     and writes back. Used for reductions and lane coordination (e.g. computing
     per-lane offsets). Bounds-checked against sflag_size.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    addr, value = rest[-2:]
+    addr = params["addr"]
+    value = params["rs1"]
     addr_val = _parse_operand(state, addr)
     if not (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize):
         return
@@ -228,10 +243,12 @@ def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
     sync flag to 1. Addresses are in granule units (16-byte); size is scaled
     internally for the memory model.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = rest[-4:]
+    src_addr_reg = params["rs1"]
+    size_in_granules = params["imm1"]
+    dest_addr_reg = params["rs2"]
+    sync_flag = params["sync"]
     sync_flag_addr = _parse_operand(state, sync_flag)
     state.write_sflag(sync_flag_addr, 1)
 
@@ -254,10 +271,12 @@ def dma_vmem_to_hbm(state: ArchState, _: str, params: dict[str, Any]):
     Copies the block and sets the sync flag to 1. Used for writing results
     back to host. Address/size units match dma.hbm_to_vmem.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    src_addr_reg, size_in_granules, dest_addr_reg, sync_flag = rest[-4:]
+    src_addr_reg = params["rs1"]
+    size_in_granules = params["imm1"]
+    dest_addr_reg = params["rs2"]
+    sync_flag = params["sync"]
     sync_flag_addr = _parse_operand(state, sync_flag)
     state.write_sflag(sync_flag_addr, 1)
 
@@ -283,8 +302,7 @@ def dma_done_wait(state: ArchState, dest_reg: str, params: dict[str, Any]):
     # TODO: this does not stall the execution right now
     # it simply clears the sync flag
     # need to implement this eventually
-    active, _rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
     return
 
@@ -298,15 +316,15 @@ def smov(state: ArchState, dest_reg: str, params: dict[str, Any]):
     One operand: move that value. Two operands with predicate: pred ? b : a
     (choose b if predicate true, else a). Writes result as u32.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if len(rest) == 0:
-        return
-    if len(rest) == 1:
-        value = _parse_operand(state, rest[0])
+    value_a = params["rs1"]
+    if params.get("pred") is None:
+        value = _parse_operand(state, value_a)
     else:
         # TPU predicated scalar move form behaves as:
         #   smov (pred, a), b  => pred ? b : a
-        on_pred, fallback = rest[0], rest[1]
+        active = _predicate_active(state, params)
+        on_pred = value_a
+        fallback = params["rs2"]
         chosen = fallback if active else on_pred
         value = _parse_operand(state, chosen)
     state.write_xreg(dest_reg, _as_u32(value))
@@ -321,10 +339,10 @@ def sshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Commonly used with imm=4 to convert granule index to byte address
     (multiply by 16) before int_to_ptr.hbm or int_to_ptr.vmem.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    src_reg, imm = rest[-2:]
+    src_reg = params["rs1"]
+    imm = params["imm1"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, src_reg) << _parse_int(imm)))
 
 
@@ -334,10 +352,10 @@ def sshra_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Used for pointer arithmetic or dividing signed values by powers of two.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    src_reg, imm = rest[-2:]
+    src_reg = params["rs1"]
+    imm = params["imm1"]
     value = _as_i32(_parse_operand(state, src_reg))
     state.write_xreg(dest_reg, _as_u32(value >> _parse_int(imm)))
 
@@ -345,40 +363,40 @@ def sshra_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("sadd.s32")
 def sadd_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar add: dest = a + b (s32, truncated to u32)."""
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    a, b = rest[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) + _parse_operand(state, b)))
 
 
 @instr("ssub.s32")
 def ssub_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar subtract: dest = a - b (s32, truncated to u32)."""
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    a, b = rest[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) - _parse_operand(state, b)))
 
 
 @instr("sor.u32")
 def sor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar bitwise or: dest = a | b (u32)."""
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    a, b = rest[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) | _parse_operand(state, b)))
 
 
 @instr("sand.u32")
 def sand_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar bitwise and: dest = a & b (u32)."""
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    a, b = rest[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) & _parse_operand(state, b)))
 
 
@@ -388,7 +406,9 @@ def scalar_select(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Reads the predicate register and writes the chosen scalar value.
     """
-    pred_reg, on_true, on_false = params[-3:]
+    pred_reg = params["pred"]
+    on_true = params["rs1"]
+    on_false = params["rs2"]
     chosen = on_true if state.read_preg(pred_reg) else on_false
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, chosen)))
 
@@ -400,56 +420,62 @@ def sphi(state: ArchState, dest_reg: str, params: dict[str, Any]):
     In SSA form this would merge values from different predecessors. After
     register coalescing in the compiler, it reduces to a move.
     """
-    src = params[-1]
+    src = params["rs1"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, src)))
 
 
 @instr("scmp.eq.s32.totalorder")
 def scmp_eq_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar compare equal: dest_pred = (a == b) as s32."""
-    a, b = params[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_preg(dest_reg, _as_i32(_parse_operand(state, a)) == _as_i32(_parse_operand(state, b)))
 
 
 @instr("scmp.ne.s32.totalorder")
 def scmp_ne_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar compare not-equal: dest_pred = (a != b) as s32."""
-    a, b = params[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_preg(dest_reg, _as_i32(_parse_operand(state, a)) != _as_i32(_parse_operand(state, b)))
 
 
 @instr("scmp.ge.s32.totalorder")
 def scmp_ge_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar compare greater-or-equal: dest_pred = (a >= b) as s32."""
-    a, b = params[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_preg(dest_reg, _as_i32(_parse_operand(state, a)) >= _as_i32(_parse_operand(state, b)))
 
 
 @instr("scmp.lt.s32.totalorder")
 def scmp_lt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar compare less-than: dest_pred = (a < b) as s32."""
-    a, b = params[-2:]
+    a = params["rs1"]
+    b = params["rs2"]
     state.write_preg(dest_reg, _as_i32(_parse_operand(state, a)) < _as_i32(_parse_operand(state, b)))
 
 
 @instr("por")
 def por(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Predicate or: dest = p0 or p1."""
-    p0, p1 = params[-2:]
+    p0 = params["ps1"]
+    p1 = params["ps2"]
     state.write_preg(dest_reg, state.read_preg(p0) or state.read_preg(p1))
 
 
 @instr("pnand")
 def pnand(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Predicate nand: dest = p0 and (not p1)."""
-    p0, p1 = params[-2:]
+    p0 = params["ps1"]
+    p1 = params["ps2"]
     state.write_preg(dest_reg, state.read_preg(p0) and (not state.read_preg(p1)))
 
 
 @instr("pneg")
 def pneg(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Predicate negate: dest = not p0."""
-    p0, = params[-1:]
+    p0 = params["ps1"]
     state.write_preg(dest_reg, not state.read_preg(p0))
 
 
@@ -460,10 +486,10 @@ def scalar_lea_vmem(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Computes VMEM byte address from base and scaled offset. Used for
     indexing into vector memory with tile or row strides.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    base, offset = rest[-2:]
+    base = params["rs1"]
+    offset = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, base) + (_parse_operand(state, offset) << 9)))
 
 
@@ -473,10 +499,10 @@ def scalar_lea_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Computes HBM byte address from base and scaled offset.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    base, offset = rest[-2:]
+    base = params["rs1"]
+    offset = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, base) + (_parse_operand(state, offset) << 9)))
 
 
@@ -486,10 +512,10 @@ def scalar_lea_sflag(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Offset scaled by 4 (uint32 size) for indexing SFlag entries.
     """
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    base, offset = rest[-2:]
+    base = params["rs1"]
+    offset = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, base) + (_parse_operand(state, offset) << 2)))
 
 
@@ -499,7 +525,8 @@ def sst(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     SMEM address is in bytes. Little-endian.
     """
-    smem_addr, src_reg = params[-2:]
+    smem_addr = params["addr"]
+    src_reg = params["rs1"]
     address = _parse_operand(state, smem_addr)
     value = _as_u32(_parse_operand(state, src_reg))
     raw = torch.tensor(list(value.to_bytes(4, byteorder="little", signed=False)), dtype=torch.uint8)
@@ -512,7 +539,7 @@ def sld(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Little-endian. Used for loading constants or scalar values from SMEM.
     """
-    smem_addr, = params[-1:]
+    smem_addr = params["addr"]
     address = _parse_operand(state, smem_addr)
     raw = state.read_smem(address, 4, dtype=torch.uint8).tolist()
     state.write_xreg(dest_reg, int.from_bytes(bytes(raw), byteorder="little", signed=False))
@@ -521,12 +548,9 @@ def sld(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("sbr.rel")
 def sbr_rel(state: ArchState, _: str, params: dict[str, Any]):
     """Relative scalar branch: set PC to target (bundle index)."""
-    active, rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
-    if not rest:
-        return
-    state.next_pc = _parse_int(rest[0])
+    state.next_pc = _parse_int(params["target"])
 
 
 @instr("shalt.err")
@@ -536,8 +560,7 @@ def shalt_err(state: ArchState, _: str, params: dict[str, Any]):
     On hardware would halt the core. In this functional simulator we treat
     it as non-fatal (no-op) for continued execution.
     """
-    active, _rest = _consume_predicate(state, list(params))
-    if not active:
+    if not _predicate_active(state, params):
         return
     # Bounds checks are modeled as non-fatal in this functional simulator.
     return
@@ -553,7 +576,7 @@ def vstv(state: ArchState, dest_reg: str, params: dict[str, Any]):
     across all sublanes and lanes. Used for broadcasting constants into
     vector ops (e.g. before vpack for BF16 conversion).
     """
-    src_reg, = params
+    src_reg = params["rs1"]
     address = state.read_xreg(src_reg)
     scalar_data = state.read_smem(address, 4, dtype=torch.float32)
     data = torch.tensor([scalar_data], dtype=torch.float32).repeat(state.num_sublanes, state.num_lanes)
@@ -568,11 +591,12 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
     sublane mask (8-bit) zeroes out masked rows. Loads vreg_size bytes
     and reshapes to num_sublanes x lanes.
     """
-    sreg_or_imm = params[0]
-    sublane_mask = params[1] if len(params) > 1 else "255"
+    sreg_or_imm = str(params["addr"])
+    sublane_mask = str(params.get("sm", "255"))
     ss_stride = None
-    if len(params) > 2 and params[2].startswith("ss="):
-        ss_stride = int(params[2].split("=", 1)[1])
+    ss_token = params.get("ss", 0)
+    if isinstance(ss_token, str) and ss_token.startswith("ss="):
+        ss_stride = int(ss_token.split("=", 1)[1])
 
     if "+" in sreg_or_imm:
         reg, offset = sreg_or_imm.split("+", 1)
@@ -619,12 +643,15 @@ def vst(state: ArchState, _: str, params: dict[str, Any]):
     Address (register or immediate), optional sublane mask (8-bit,
     bit i = 1 stores row i), and source register. Mask 0 stores nothing.
     """
-    address, sublane_mask, vsrc_reg = params[:3]  # optional middle arg: mask (sm:$0xN)
+    address = params["addr"]
+    sublane_mask = params["sm"]
+    vsrc_reg = params["vs1"]
     data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    if address.startswith("s"):
+    if isinstance(address, str) and address.startswith("s"):
         address = state.read_xreg(address)
     else:
-        address = int(address, 16) if address.startswith("0x") else int(address)
+        address_str = str(address)
+        address = int(address_str, 16) if address_str.startswith("0x") else int(address_str)
 
     mask_val = int(sublane_mask)
     if mask_val == 255:
@@ -651,12 +678,15 @@ def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Same as vst but with a dedicated mask form; bit i = 1 stores row i.
     """
-    address, sublane_mask, vsrc_reg = params[:3]
+    address = params["addr"]
+    sublane_mask = params["sm"]
+    vsrc_reg = params["vs1"]
     data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    if address.startswith("s"):
+    if isinstance(address, str) and address.startswith("s"):
         address = state.read_xreg(address)
     else:
-        address = int(address, 16) if address.startswith("0x") else int(address)
+        address_str = str(address)
+        address = int(address_str, 16) if address_str.startswith("0x") else int(address_str)
 
     mask_val = int(sublane_mask)
     if mask_val == 255:
@@ -685,12 +715,13 @@ def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Operands can be vector registers or immediates.
     """
-    vsrc1_reg, vsrc2_reg = params
-    if vsrc1_reg.startswith("v"):
+    vsrc1_reg = params["vs1"]
+    vsrc2_reg = params["vs2"]
+    if isinstance(vsrc1_reg, str) and vsrc1_reg.startswith("v"):
         vsrc1_data = state.read_vreg(vsrc1_reg, dtype=torch.float32)
     else:
         vsrc1_data = float(vsrc1_reg)
-    if vsrc2_reg.startswith("v"):
+    if isinstance(vsrc2_reg, str) and vsrc2_reg.startswith("v"):
         vsrc2_data = state.read_vreg(vsrc2_reg, dtype=torch.float32)
     else:
         vsrc2_data = float(vsrc2_reg)
@@ -702,8 +733,8 @@ def vadd_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vmov")
 def vmov(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Broadcast scalar immediate/register value into a vector register."""
-    src, = params
-    if src.startswith("v") or src in state.vreg:
+    src = params["vs1"]
+    if isinstance(src, str) and (src.startswith("v") or src in state.vreg):
         state.write_vreg(dest_reg, state.read_vreg(src, dtype=torch.float32))
         return
     if _is_float_token(src):
@@ -715,7 +746,8 @@ def vmov(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vadd.s32")
 def vadd_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector add in 32-bit integer lanes with wraparound."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     rhs = _vector_operand_u32(state, b).to(torch.int64)
     state.write_vreg(dest_reg, ((lhs + rhs) & U32_MASK).to(torch.uint32))
@@ -724,7 +756,8 @@ def vadd_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vsub.s32")
 def vsub_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector subtract in 32-bit integer lanes with wraparound."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     rhs = _vector_operand_u32(state, b).to(torch.int64)
     state.write_vreg(dest_reg, ((lhs - rhs) & U32_MASK).to(torch.uint32))
@@ -733,21 +766,24 @@ def vsub_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vsub.f32")
 def vsub_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector float subtraction."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vreg(dest_reg, _vector_operand_f32(state, a) - _vector_operand_f32(state, b))
 
 
 @instr("vmul.f32")
 def vmul_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector float multiplication."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vreg(dest_reg, _vector_operand_f32(state, a) * _vector_operand_f32(state, b))
 
 
 @instr("vmul.u32")
 def vmul_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector 32-bit unsigned multiply with wraparound."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     rhs = _vector_operand_u32(state, b).to(torch.int64)
     state.write_vreg(dest_reg, ((lhs * rhs) & U32_MASK).to(torch.uint32))
@@ -756,33 +792,32 @@ def vmul_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vand.u32")
 def vand_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector bitwise AND on 32-bit lanes."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vreg(dest_reg, _vector_operand_u32(state, a) & _vector_operand_u32(state, b))
 
 
 @instr("vor.u32")
 def vor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector bitwise OR on 32-bit lanes."""
-    if len(params) == 1:
-        # Unary form appears in compiler output for OR with implicit zero.
-        a = params[0]
-        state.write_vreg(dest_reg, _vector_operand_u32(state, a))
-        return
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vreg(dest_reg, _vector_operand_u32(state, a) | _vector_operand_u32(state, b))
 
 
 @instr("vxor.u32")
 def vxor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector bitwise XOR on 32-bit lanes."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vreg(dest_reg, _vector_operand_u32(state, a) ^ _vector_operand_u32(state, b))
 
 
 @instr("vshll.u32")
 def vshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector logical left shift on 32-bit lanes."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     sh = (_vector_operand_u32(state, b) & 31).to(torch.int64)
     state.write_vreg(dest_reg, ((lhs << sh) & U32_MASK).to(torch.uint32))
@@ -791,7 +826,8 @@ def vshll_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vshrl.u32")
 def vshrl_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector logical right shift on 32-bit lanes."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     sh = (_vector_operand_u32(state, b) & 31).to(torch.int64)
     state.write_vreg(dest_reg, ((lhs >> sh) & U32_MASK).to(torch.uint32))
@@ -800,7 +836,7 @@ def vshrl_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vclz")
 def vclz(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector count-leading-zeros for 32-bit lanes."""
-    src, = params
+    src = params["vs1"]
     values = _vector_operand_u32(state, src).flatten().tolist()
     clz = [
         (32 - int(v).bit_length()) if int(v) != 0 else 32
@@ -813,35 +849,39 @@ def vclz(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vcvt.s32.f32")
 def vcvt_s32_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Convert vector int32 lanes to float32 lanes."""
-    src, = params
+    src = params["vs1"]
     state.write_vreg(dest_reg, _vector_operand_i32(state, src).to(torch.float32))
 
 
 @instr("vcmp.lt.s32.totalorder")
 def vcmp_lt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector signed int compare (<), producing VM mask."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vmreg(dest_reg, _vector_operand_i32(state, a) < _vector_operand_i32(state, b))
 
 
 @instr("vcmp.gt.s32.totalorder")
 def vcmp_gt_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector signed int compare (>), producing VM mask."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vmreg(dest_reg, _vector_operand_i32(state, a) > _vector_operand_i32(state, b))
 
 
 @instr("vcmp.eq.s32.totalorder")
 def vcmp_eq_s32_totalorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector signed int compare (==), producing VM mask."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vmreg(dest_reg, _vector_operand_i32(state, a) == _vector_operand_i32(state, b))
 
 
 @instr("vcmp.le.f32.partialorder")
 def vcmp_le_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector float compare (<=) with partial-order NaN handling."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_f32(state, a)
     rhs = _vector_operand_f32(state, b)
     mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs <= rhs)
@@ -851,7 +891,8 @@ def vcmp_le_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, 
 @instr("vcmp.eq.f32.partialorder")
 def vcmp_eq_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector float compare (==) with partial-order NaN handling."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_f32(state, a)
     rhs = _vector_operand_f32(state, b)
     mask = torch.isfinite(lhs) & torch.isfinite(rhs) & (lhs == rhs)
@@ -861,7 +902,8 @@ def vcmp_eq_f32_partialorder(state: ArchState, dest_reg: str, params: dict[str, 
 @instr("vc.u32")
 def vc_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector carry-out mask for 32-bit unsigned addition."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     lhs = _vector_operand_u32(state, a).to(torch.int64)
     rhs = _vector_operand_u32(state, b).to(torch.int64)
     state.write_vmreg(dest_reg, (lhs + rhs) > U32_MASK)
@@ -870,18 +912,17 @@ def vc_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vmor")
 def vmor(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Mask OR."""
-    a, b = params
+    a = params["vs1"]
+    b = params["vs2"]
     state.write_vmreg(dest_reg, _mask_operand(state, a) | _mask_operand(state, b))
 
 
 @instr("vsel")
 def vsel(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector select by VM mask: mask ? on_true : on_false."""
-    if len(params) < 2:
-        return
-    vm_reg = params[0]
-    on_true = params[1]
-    on_false = params[2] if len(params) > 2 else params[1]
+    vm_reg = params["vm1"]
+    on_true = params["vs1"]
+    on_false = params["vs2"]
     mask = _mask_operand(state, vm_reg)
     true_bits = _vector_operand_u32(state, on_true)
     false_bits = _vector_operand_u32(state, on_false)
@@ -909,8 +950,8 @@ def vset_pattern_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str,
 def vperm_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Queue a source vector for a subsequent vpop.permute.xlu0."""
     source = None
-    for token in reversed(params):
-        if token.startswith("v"):
+    for token in reversed(list(params.values())):
+        if isinstance(token, str) and token.startswith("v"):
             source = token
             break
     if source is None:
@@ -927,7 +968,9 @@ def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Current model covers the emitted TPU patterns used by these kernels:
     source vectors of logical shape [8] are expanded into per-row broadcasts.
     """
-    token = params[-1] if params else state.last_permute_token
+    token = params.get("imm1", state.last_permute_token)
+    if token is None or (isinstance(token, int) and token == 0):
+        token = state.last_permute_token
     if token is None or token not in state.permute_buffer:
         state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
         return
@@ -940,29 +983,28 @@ def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vrcp.f32")
 def vrcp_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector reciprocal approximation (modeled as exact reciprocal)."""
-    src, = params
+    src = params["vs1"]
     state.write_vreg(dest_reg, 1.0 / _vector_operand_f32(state, src))
 
 
 @instr("vpow2.f32")
 def vpow2_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector base-2 exponent."""
-    src, = params
+    src = params["vs1"]
     state.write_vreg(dest_reg, torch.pow(2.0, _vector_operand_f32(state, src)))
 
 
 @instr("vpop.eup")
 def vpop_eup(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Pop EUP pipeline value (modeled as identity)."""
-    assert params, "vpop.eup requires at least one parameter"
-    src, = params[-1:]
+    src = params["vs1"]
     state.write_vreg(dest_reg, _vector_operand_f32(state, src))
 
 
 @instr("vweird.f32")
 def vweird_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Special-value detector for transcendental pipelines."""
-    src, = params
+    src = params["vs1"]
     data = _vector_operand_f32(state, src)
     state.write_vmreg(dest_reg, ~torch.isfinite(data))
 
@@ -970,7 +1012,7 @@ def vweird_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
 @instr("vtanh.f32")
 def vtanh_f32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Vector tanh."""
-    src, = params
+    src = params["vs1"]
     state.write_vreg(dest_reg, torch.tanh(_vector_operand_f32(state, src)))
 
 
@@ -981,7 +1023,8 @@ def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Rolls the sublane dimension; used for data movement in reductions
     and lane communication.
     """
-    vsrc_reg, shift_amount = params
+    vsrc_reg = params["vs1"]
+    shift_amount = params["imm1"]
     shift_amount = int(shift_amount)
     assert shift_amount >= 0 and shift_amount < state.num_sublanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
@@ -1008,8 +1051,9 @@ def vpack_c_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Concatenates high and low as BF16; typically used after vadd/vstv
     to prepare data for MXU matmul.
     """
-    reg1_or_imm, vsrc2_reg = params
-    if reg1_or_imm.startswith("v"):
+    reg1_or_imm = params["vs1"]
+    vsrc2_reg = params["vs2"]
+    if isinstance(reg1_or_imm, str) and reg1_or_imm.startswith("v"):
         high = state.read_vreg(reg1_or_imm, dtype=torch.float32)
     else:
         high = torch.full(
@@ -1034,7 +1078,7 @@ def vunpack_c_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Extracts the lower 16 bits of each 32-bit lane; used after MXU
     output to convert BF16 results back to FP32.
     """
-    vsrc_reg, = params
+    vsrc_reg = params["vs1"]
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
     low, _ = unpack_bf16_register(vsrc_data, state.num_sublanes, state.num_lanes)
     state.write_vreg(dest_reg, low.to(torch.float32))
@@ -1046,7 +1090,7 @@ def vunpack_c_h_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
     Extracts the upper 16 bits of each 32-bit lane.
     """
-    vsrc_reg, = params
+    vsrc_reg = params["vs1"]
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.bfloat16)
     _, high = unpack_bf16_register(vsrc_data, state.num_sublanes, state.num_lanes)
     state.write_vreg(dest_reg, high.to(torch.float32))
@@ -1059,7 +1103,7 @@ def vunpack_i_l_bf16(state: ArchState, dest_reg: str, params: dict[str, Any]):
     For values from scalar path (e.g. vstv) represented as FP32; converts
     to BF16 and back to FP32 for downstream use.
     """
-    vsrc_reg, = params
+    vsrc_reg = params["vs1"]
     # Immediate BF16 values originate from scalar paths (e.g. vstv), where values
     # are represented in FP32 lanes and then interpreted as BF16 for conversion.
     unpacked_data = state.read_vreg(vsrc_reg, dtype=torch.float32).to(torch.bfloat16).to(torch.float32)
@@ -1107,7 +1151,8 @@ def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
              | | | |
             (128 x 8) transposed matrix register
     """
-    vsrc_reg, num_lanes = params
+    vsrc_reg = params["vs1"]
+    num_lanes = params["imm1"]
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
@@ -1123,7 +1168,8 @@ def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
     the top rows of the XLU buffer. Used with vxpose.xlu0.b32.end for
     multi-tile transpose.
     """
-    vsrc_reg, num_lanes = params
+    vsrc_reg = params["vs1"]
+    num_lanes = params["imm1"]
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
@@ -1138,7 +1184,8 @@ def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
     Rolls the buffer up, then writes transposed source into the next
     rows. Complements vxpose.xlu0.b32.start for sliding-window transpose.
     """
-    vsrc_reg, num_lanes = params
+    vsrc_reg = params["vs1"]
+    num_lanes = params["imm1"]
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
@@ -1176,28 +1223,28 @@ def vmatpush_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
 
     Loads the weight tile for matmul. MSRA = matrix storage / register file A.
     """
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight("mxu0", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.msra.mxu1")
 def vmatpush_msra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
     """Push weight matrix (MSRA) from vector reg into MXU1."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight("mxu1", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.msra.mxu2")
 def vmatpush_msra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
     """Push weight matrix (MSRA) from vector reg into MXU2."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight("mxu2", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.msra.mxu3")
 def vmatpush_msra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
     """Push weight matrix (MSRA) from vector reg into MXU3."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight("mxu3", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
@@ -1208,28 +1255,28 @@ def vmatpush_xpose_msra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     Same as vmatpush.msra but transposes the source before pushing;
     used for RHS-major layouts (e.g. transposed matmul).
     """
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight_transpose("mxu0", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.xpose.msra.mxu1")
 def vmatpush_xpose_msra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
     """Push transposed weight matrix into MXU1."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight_transpose("mxu1", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.xpose.msra.mxu2")
 def vmatpush_xpose_msra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
     """Push transposed weight matrix into MXU2."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight_transpose("mxu2", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
 @instr("vmatpush.xpose.msra.mxu3")
 def vmatpush_xpose_msra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
     """Push transposed weight matrix into MXU3."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight_transpose("mxu3", state.read_vreg(src_vreg, dtype=torch.float32))
 
 
@@ -1239,7 +1286,7 @@ def vmatpush_bf16_xpose_msra_mxu0(state: ArchState, _: str, params: dict[str, An
 
     BF16 variant for mixed-precision matmul; source is BF16-packed.
     """
-    src_vreg, = params
+    src_vreg = params["vs1"]
     state.push_mxu_weight_transpose("mxu0", state.read_vreg(src_vreg, dtype=torch.bfloat16))
 
 
@@ -1250,7 +1297,7 @@ def vmatmul_f32_gmra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
     Reads activation from vsrc, multiplies with previously pushed weights,
     accumulates into the MXU accumulator. GMRA = general matrix register A.
     """
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu0", activation)
 
@@ -1258,7 +1305,7 @@ def vmatmul_f32_gmra_mxu0(state: ArchState, _: str, params: dict[str, Any]):
 @instr("vmatmul.f32.gmra.mxu1")
 def vmatmul_f32_gmra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply: activation x weight in MXU1, accumulate."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu1", activation)
 
@@ -1266,7 +1313,7 @@ def vmatmul_f32_gmra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
 @instr("vmatmul.f32.gmra.mxu2")
 def vmatmul_f32_gmra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply: activation x weight in MXU2, accumulate."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu2", activation)
 
@@ -1274,7 +1321,7 @@ def vmatmul_f32_gmra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
 @instr("vmatmul.f32.gmra.mxu3")
 def vmatmul_f32_gmra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply: activation x weight in MXU3, accumulate."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu3", activation)
 
@@ -1285,7 +1332,7 @@ def vmatmul_f32_vlgmr_msra_gmra_mxu0(state: ArchState, _: str, params: dict[str,
 
     Same matmul as vmatmul.f32.gmra; different operand routing/format.
     """
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu0", activation)
 
@@ -1293,7 +1340,7 @@ def vmatmul_f32_vlgmr_msra_gmra_mxu0(state: ArchState, _: str, params: dict[str,
 @instr("vmatmul.f32.vlgmr.msra.gmra.mxu1")
 def vmatmul_f32_vlgmr_msra_gmra_mxu1(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply in MXU1 (vlgmr/msra/gmra variant)."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu1", activation)
 
@@ -1301,7 +1348,7 @@ def vmatmul_f32_vlgmr_msra_gmra_mxu1(state: ArchState, _: str, params: dict[str,
 @instr("vmatmul.f32.vlgmr.msra.gmra.mxu2")
 def vmatmul_f32_vlgmr_msra_gmra_mxu2(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply in MXU2 (vlgmr/msra/gmra variant)."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu2", activation)
 
@@ -1309,7 +1356,7 @@ def vmatmul_f32_vlgmr_msra_gmra_mxu2(state: ArchState, _: str, params: dict[str,
 @instr("vmatmul.f32.vlgmr.msra.gmra.mxu3")
 def vmatmul_f32_vlgmr_msra_gmra_mxu3(state: ArchState, _: str, params: dict[str, Any]):
     """Matrix multiply in MXU3 (vlgmr/msra/gmra variant)."""
-    src_vreg, = params
+    src_vreg = params["vs1"]
     activation = state.read_vreg(src_vreg, dtype=torch.float32)
     state.execute_mxu_matmul("mxu3", activation)
 
@@ -1321,12 +1368,10 @@ def vmatmul_msk_f32_vlgmr_msra_gmra_mxu0(state: ArchState, _: str, params: dict[
     The first operand is a VM mask selecting active lanes in the activation
     tile; inactive lanes are zeroed before issuing matmul.
     """
-    if len(params) == 1:
-        src_vreg = params[0]
-        activation = state.read_vreg(src_vreg, dtype=torch.float32)
-    else:
-        vm_reg, src_vreg = params[-2:]
-        activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    src_vreg = params["vs1"]
+    activation = state.read_vreg(src_vreg, dtype=torch.float32)
+    vm_reg = params.get("vm1")
+    if vm_reg not in (0, "0", None):
         mask = _mask_operand(state, vm_reg)
         activation = torch.where(mask, activation, torch.zeros_like(activation))
     state.execute_mxu_matmul("mxu0", activation)

@@ -3,12 +3,15 @@ from pathlib import Path
 from dataclasses import dataclass
 
 
+OperandValue = str | int | None
+
+
 # One instruction: dest register, opcode, and argument fields (register part, immediate, or "")
 @dataclass
 class Instruction:
     opcode: str
     dest_reg: str
-    args: list[str]
+    args: dict[str, OperandValue]
 
 
 # Memory allocation from original file: id, size in bytes, space, base address
@@ -41,6 +44,208 @@ class BundleParser:
         # can be lowered correctly.
         self._eup_value_producers: dict[str, tuple[str, str]] = {}
         self._ssa_token_to_vreg: dict[str, str] = {}
+
+    _PREDICATED_TERNARY_SCALAR_OPS = {
+        "sadd.s32",
+        "ssub.s32",
+        "sor.u32",
+        "sand.u32",
+        "scalar_lea.vmem",
+        "scalar_lea.hbm",
+        "scalar_lea.sflag",
+    }
+    _VECTOR_BINARY_OPS = {
+        "vadd.f32",
+        "vadd.s32",
+        "vsub.s32",
+        "vsub.f32",
+        "vmul.f32",
+        "vmul.u32",
+        "vand.u32",
+        "vor.u32",
+        "vxor.u32",
+        "vshll.u32",
+        "vshrl.u32",
+        "vcmp.lt.s32.totalorder",
+        "vcmp.gt.s32.totalorder",
+        "vcmp.eq.s32.totalorder",
+        "vcmp.le.f32.partialorder",
+        "vcmp.eq.f32.partialorder",
+        "vc.u32",
+        "vmor",
+    }
+    _VECTOR_UNARY_OPS = {
+        "vmov",
+        "vclz",
+        "vcvt.s32.f32",
+        "vrcp.f32",
+        "vpow2.f32",
+        "vpop.eup",
+        "vweird.f32",
+        "vtanh.f32",
+        "vunpack.c.l.bf16",
+        "vunpack.c.h.bf16",
+        "vunpack.i.l.bf16",
+        "vmatpush.msra.mxu0",
+        "vmatpush.msra.mxu1",
+        "vmatpush.msra.mxu2",
+        "vmatpush.msra.mxu3",
+        "vmatpush.xpose.msra.mxu0",
+        "vmatpush.xpose.msra.mxu1",
+        "vmatpush.xpose.msra.mxu2",
+        "vmatpush.xpose.msra.mxu3",
+        "vmatpush.bf16.xpose.msra.mxu0",
+        "vmatmul.f32.gmra.mxu0",
+        "vmatmul.f32.gmra.mxu1",
+        "vmatmul.f32.gmra.mxu2",
+        "vmatmul.f32.gmra.mxu3",
+        "vmatmul.f32.vlgmr.msra.gmra.mxu0",
+        "vmatmul.f32.vlgmr.msra.gmra.mxu1",
+        "vmatmul.f32.vlgmr.msra.gmra.mxu2",
+        "vmatmul.f32.vlgmr.msra.gmra.mxu3",
+    }
+
+    @classmethod
+    def _operand_schema_for_opcode(cls, opcode: str) -> list[str] | None:
+        if opcode.startswith("inlined_call_operand."):
+            return ["imm1"]
+        if opcode.startswith("int_to_ptr."):
+            return ["rs1"]
+        if opcode in ("vsyncpa", "vsyncadd"):
+            return ["pred", "addr", "rs1"]
+        if opcode in ("dma.hbm_to_vmem", "dma.vmem_to_hbm"):
+            return ["pred", "rs1", "imm1", "rs2", "sync"]
+        if opcode == "dma.done.wait":
+            return ["pred", "sync"]
+        if opcode == "smov":
+            return ["pred", "rs1", "rs2"]
+        if opcode in ("sshll.u32", "sshra.s32"):
+            return ["pred", "rs1", "imm1"]
+        if opcode in cls._PREDICATED_TERNARY_SCALAR_OPS:
+            return ["pred", "rs1", "rs2"]
+        if opcode == "scalar_select":
+            return ["pred", "rs1", "rs2"]
+        if opcode == "sphi":
+            return ["rs1"]
+        if opcode in (
+            "scmp.eq.s32.totalorder",
+            "scmp.ne.s32.totalorder",
+            "scmp.ge.s32.totalorder",
+            "scmp.lt.s32.totalorder",
+        ):
+            return ["rs1", "rs2"]
+        if opcode in ("por", "pnand"):
+            return ["ps1", "ps2"]
+        if opcode == "pneg":
+            return ["ps1"]
+        if opcode == "sst":
+            return ["addr", "rs1"]
+        if opcode == "sld":
+            return ["addr"]
+        if opcode == "sbr.rel":
+            return ["pred", "target"]
+        if opcode == "shalt.err":
+            return ["pred"]
+        if opcode == "vstv":
+            return ["rs1"]
+        if opcode == "vld":
+            return ["addr", "sm", "ss"]
+        if opcode in ("vst", "vst.msk"):
+            return ["addr", "sm", "vs1"]
+        if opcode in cls._VECTOR_BINARY_OPS:
+            return ["vs1", "vs2"]
+        if opcode in cls._VECTOR_UNARY_OPS:
+            return ["vs1"]
+        if opcode == "vsel":
+            return ["vm1", "vs1", "vs2"]
+        if opcode == "vlaneseq":
+            return []
+        if opcode == "vset.pattern.permute.xlu0":
+            return ["imm1"]
+        if opcode == "vperm.xlu0":
+            return ["vs1", "imm1"]
+        if opcode == "vpop.permute.xlu0":
+            return ["imm1"]
+        if opcode == "vrot.slane":
+            return ["vs1", "imm1"]
+        if opcode == "vcmask":
+            return ["imm1", "imm2"]
+        if opcode == "vpack.c.bf16":
+            return ["vs1", "vs2"]
+        if opcode in (
+            "vxpose.xlu0.b32.start.end",
+            "vxpose.xlu0.b32.start",
+            "vxpose.xlu0.b32.end",
+        ):
+            return ["vs1", "imm1"]
+        if opcode == "vpop.trf.xlu0":
+            return ["imm1"]
+        if opcode == "vmatmul.msk.f32.vlgmr.msra.gmra.mxu0":
+            return ["vm1", "vs1"]
+        if opcode in (
+            "vpop.f32.mrf.mxu0",
+            "vpop.f32.mrf.mxu1",
+            "vpop.f32.mrf.mxu2",
+            "vpop.f32.mrf.mxu3",
+        ):
+            return []
+        return None
+
+    @staticmethod
+    def _default_operand_value(field: str) -> OperandValue:
+        return None if field == "pred" or field.startswith("ps") else 0
+
+    @staticmethod
+    def _infer_operand_field(token: str, counts: dict[str, int]) -> str:
+        if token.startswith("!p") or token.startswith("p"):
+            key = "pred"
+        elif token.startswith("vm"):
+            counts["vm"] = counts.get("vm", 0) + 1
+            key = f"vm{counts['vm']}"
+        elif token.startswith("v"):
+            counts["vs"] = counts.get("vs", 0) + 1
+            key = f"vs{counts['vs']}"
+        elif token.startswith("ss="):
+            counts["ss"] = counts.get("ss", 0) + 1
+            key = f"ss{counts['ss']}"
+        elif token.startswith("s"):
+            counts["rs"] = counts.get("rs", 0) + 1
+            key = f"rs{counts['rs']}"
+        else:
+            counts["imm"] = counts.get("imm", 0) + 1
+            key = f"imm{counts['imm']}"
+        return key
+
+    @classmethod
+    def _build_operand_dict(cls, opcode: str, args: list[str]) -> dict[str, OperandValue]:
+        schema = cls._operand_schema_for_opcode(opcode)
+        if schema is not None:
+            values: dict[str, OperandValue] = {
+                field: cls._default_operand_value(field) for field in schema
+            }
+            active_schema = schema
+            if schema and schema[0] == "pred" and args:
+                first = args[0]
+                if not (first.startswith("p") or first.startswith("!p")):
+                    active_schema = schema[1:]
+            for i, value in enumerate(args):
+                if i < len(active_schema):
+                    field = active_schema[i]
+                else:
+                    field = f"imm{i + 1}"
+                    values.setdefault(field, cls._default_operand_value(field))
+                values[field] = value
+            return values
+
+        inferred: dict[str, OperandValue] = {}
+        counts: dict[str, int] = {}
+        for value in args:
+            field = cls._infer_operand_field(value, counts)
+            while field in inferred:
+                counts["imm"] = counts.get("imm", 0) + 1
+                field = f"imm{counts['imm']}"
+            inferred[field] = value
+        return inferred
 
     # --- File discovery ---
 
@@ -349,10 +554,11 @@ class BundleParser:
 
     @staticmethod
     def _resolve_args(
-        args: list[str], symbol_table: dict[str, Allocation]
-    ) -> list[str]:
+        args: dict[str, OperandValue], symbol_table: dict[str, Allocation]
+    ) -> dict[str, OperandValue]:
         """Replace #allocation refs (and #alloc+offset) with resolved addresses."""
-        result: list[str] = []
+        result: dict[str, OperandValue] = {}
+
         def normalize_alloc_id(alloc_id: str) -> str:
             if alloc_id in symbol_table:
                 return alloc_id
@@ -360,17 +566,22 @@ class BundleParser:
             if m and m.group(1) in symbol_table:
                 return m.group(1)
             return alloc_id
-        for a in args:
+
+        for key, value in args.items():
+            if not isinstance(value, str):
+                result[key] = value
+                continue
+            a = value
             alloc_id = normalize_alloc_id(a)
             if alloc_id in symbol_table:
-                result.append(str(symbol_table[alloc_id].base_address))
+                result[key] = str(symbol_table[alloc_id].base_address)
             elif re.match(r"^#allocation\d+(?:_[A-Za-z0-9]+)?\+\d+$", a):
                 alloc_id, offset_str = a.rsplit("+", 1)
                 alloc_id = normalize_alloc_id(alloc_id)
                 base = symbol_table[alloc_id].base_address if alloc_id in symbol_table else 0
-                result.append(str(base + int(offset_str)))
+                result[key] = str(base + int(offset_str))
             else:
-                result.append(a)
+                result[key] = a
         return result
 
     def _parse_one_instruction(self, instr_str: str) -> Instruction | None:
@@ -401,7 +612,9 @@ class BundleParser:
             if info is not None:
                 _dtype, _dims, index, _size = info
                 return Instruction(
-                    dest_reg=dest_reg, opcode=opcode, args=[f"#operand{index}"]
+                    dest_reg=dest_reg,
+                    opcode=opcode,
+                    args=self._build_operand_dict(opcode, [f"#operand{index}"]),
                 )
             # fall through to generic parsing if shape/index not found
 
@@ -415,13 +628,13 @@ class BundleParser:
             target_match = re.search(r"target bundleno\s*=\s*(0x[0-9a-fA-F]+|\d+)", rest)
             if target_match:
                 args.append(target_match.group(1))
-            return Instruction(dest_reg=dest_reg, opcode=opcode, args=args)
+            return Instruction(dest_reg=dest_reg, opcode=opcode, args=self._build_operand_dict(opcode, args))
 
         arg_segments = self._split_args_top_level(rest)
         args: list[str] = []
         for seg in arg_segments:
             args.extend(self._parse_arg_values(seg))
-        return Instruction(dest_reg=dest_reg, opcode=opcode, args=args)
+        return Instruction(dest_reg=dest_reg, opcode=opcode, args=self._build_operand_dict(opcode, args))
 
     # --- Bundle parsing ---
 
@@ -487,8 +700,8 @@ class BundleParser:
 
             # EUP value producers: vrcp / vtanh – effect realized at vpop.eup.
             if ssa_dest and opcode in ("vrcp.f32", "vtanh.f32"):
-                src_reg = instr.args[0] if instr.args else ""
-                if src_reg:
+                src_reg = instr.args.get("vs1", 0)
+                if isinstance(src_reg, str) and src_reg:
                     self._eup_value_producers[ssa_dest] = (opcode, src_reg)
                 # Do NOT emit this instruction now; it will be materialized
                 # as a concrete vector op when we see the matching vpop.eup.
@@ -497,8 +710,8 @@ class BundleParser:
             # vpow2.f32: overwrite source vector register in-place. The SSA
             # destination is an EUP token, not a hardware register.
             if ssa_dest and opcode == "vpow2.f32":
-                src_reg = instr.args[0] if instr.args else ""
-                if src_reg:
+                src_reg = instr.args.get("vs1", 0)
+                if isinstance(src_reg, str) and src_reg:
                     self._ssa_token_to_vreg[ssa_dest] = src_reg
                     instr.dest_reg = src_reg
 
@@ -507,21 +720,33 @@ class BundleParser:
         # Second pass: lower vpop.eup and emit final instruction list.
         for ssa_dest, instr in raw_instrs:
             if instr.opcode == "vpop.eup":
-                if not instr.args:
+                token = instr.args.get("vs1", 0)
+                if not isinstance(token, str) or not token:
                     result.append(instr)
                     continue
-                token = instr.args[-1]
 
                 # Case 1: token refers to a vrcp/vtanh EUP producer.
                 if token in self._eup_value_producers:
                     prod_opcode, src_reg = self._eup_value_producers.pop(token)
-                    result.append(Instruction(opcode=prod_opcode, dest_reg=instr.dest_reg, args=[src_reg]))
+                    result.append(
+                        Instruction(
+                            opcode=prod_opcode,
+                            dest_reg=instr.dest_reg,
+                            args=self._build_operand_dict(prod_opcode, [src_reg]),
+                        )
+                    )
                     continue
 
                 # Case 2: token refers to a vpow2.f32 in-place producer.
                 if token in self._ssa_token_to_vreg:
                     src_reg = self._ssa_token_to_vreg[token]
-                    result.append(Instruction(opcode="vpop.eup", dest_reg=instr.dest_reg, args=[src_reg]))
+                    result.append(
+                        Instruction(
+                            opcode="vpop.eup",
+                            dest_reg=instr.dest_reg,
+                            args=self._build_operand_dict("vpop.eup", [src_reg]),
+                        )
+                    )
                     continue
 
                 # Fallback: treat argument as already-physical.
@@ -533,7 +758,7 @@ class BundleParser:
     def parse_bundle(
         self, payload: str, symbol_table: dict[str, Allocation] | None = None
     ) -> list[Instruction]:
-        """Parse bundle payload; resolve #allocation refs if symbol_table given."""
+        """Parse bundle payload and return instructions with named operand dictionaries."""
         instructions = self._parse_bundle_raw(payload)
         if symbol_table:
             for instr in instructions:
