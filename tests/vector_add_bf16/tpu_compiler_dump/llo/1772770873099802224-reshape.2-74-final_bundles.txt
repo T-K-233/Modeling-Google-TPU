@@ -1,0 +1,48 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %2 = vsyncpa [#allocation2], 0  ;;  %s171_s0 = inlined_call_operand.hbm [shape: bf16[2048], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s172_s1 = inlined_call_operand.hbm [shape: bf16[8,256], index: 1, kind: output, shape index: {}] /* operand 1 */ } /* entry bundle: %reshape.2 = reshape(%Arg_0.1) */
+   0x1   :  { %3 = vsyncpa [#allocation1], 0  ;;  %s7_s0 = sshll.u32 %s171_s0, 4  ;;  %s153_s8 = smov [#allocation3] /* materialized constant */  ;;  %s8_s0 = int_to_ptr.hbm [resolvable:$true] %s7_s0 }
+   0x2   :  { %s9_s9 = sshll.u32 %s153_s8, 4  ;;  %s10_s9 = int_to_ptr.vmem [resolvable:$true] %s9_s9 }
+   0x3   :  { %12 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s8_s0, /*size_in_granules=*/128, /*vmem=*/%s10_s9, /*dst_syncflagno=*/[#allocation1] /* 
+base_bounds: (8)
+dynamic_base_bounds: (8)
+window_bounds: (8)
+iteration_bounds: (1)
+strides: (8)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+   0x4   :  { %149 = dma.done.wait [#allocation1], 128 /* pipeline-emitter-dma-wait */ }
+   0x5   :  { %150 = vsyncadd [#allocation1], 4294967168  ;;  %v91_v0 = vld [vmem:[#allocation3] sm:$0xff] /* Coalesced load. */  ;;  %s154_s10 = smov [#allocation0] /* materialized constant */  ;;  %s82_s1 = sshll.u32 %s172_s1, 4  ;;  %s83_s1 = int_to_ptr.hbm [resolvable:$true] %s82_s1 }
+   0x6   :  { %v92_v1 = vunpack.c.l.bf16 %v91_v0  ;;  %v93_v2 = vunpack.c.h.bf16 %v91_v0  ;;  %s80_s11 = sshll.u32 %s154_s10, 4  ;;  %s81_s11 = int_to_ptr.vmem [resolvable:$true] %s80_s11 }
+   0x7   :  { %46 = vst [vmem:[#allocation4] ss:$8 sm:$0x3] /*vst_source=*/%v92_v1 /* (strided) store 0000:00, stride: 8, sublanes: 2 */ }
+   0x8   :  { %48 = vst [vmem:[#allocation4 - $0xf] ss:$8 sm:$0xc] /*vst_source=*/%v92_v1 /* (strided) store 0001:00, stride: 8, sublanes: 2 */ }
+   0x9   :  { %50 = vst [vmem:[#allocation4 - $0x1e] ss:$8 sm:$0x30] /*vst_source=*/%v92_v1 /* (strided) store 0002:00, stride: 8, sublanes: 2 */ }
+   0xa   :  { %52 = vst [vmem:[#allocation4 - $0x2d] ss:$8 sm:$0xc0] /*vst_source=*/%v92_v1 /* (strided) store 0003:00, stride: 8, sublanes: 2 */ }
+   0xb   :  { %56 = vst [vmem:[#allocation4 + $0x4] ss:$8 sm:$0x3] /*vst_source=*/%v93_v2 /* (strided) store 0004:00, stride: 8, sublanes: 2 */ }
+   0xc   :  { %58 = vst [vmem:[#allocation4 - $0xb] ss:$8 sm:$0xc] /*vst_source=*/%v93_v2 /* (strided) store 0005:00, stride: 8, sublanes: 2 */ }
+   0xd   :  { %60 = vst [vmem:[#allocation4 - $0x1a] ss:$8 sm:$0x30] /*vst_source=*/%v93_v2 /* (strided) store 0006:00, stride: 8, sublanes: 2 */ }
+   0xe   :  { %62 = vst [vmem:[#allocation4 - $0x29] ss:$8 sm:$0xc0] /*vst_source=*/%v93_v2 /* (strided) store 0007:00, stride: 8, sublanes: 2 */ }
+   0xf   :  { %v65_v3 = vld [vmem:[#allocation4] sm:$0xff]  ;;  %v71_v4 = vld [vmem:[#allocation4 + $0x8] sm:$0xff] }
+  0x10   :  { %v97_v5 = vpack.c.bf16 %v71_v4, %v65_v3 }
+  0x11   :  { %98 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v97_v5 /* Coalesced store. */ }
+  0x12   :  { %85 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s81_s11, /*size_in_granules=*/128, /*hbm=*/%s83_s1, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (8)
+dynamic_base_bounds: (8)
+window_bounds: (8)
+iteration_bounds: (1)
+strides: (8)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+  0x13   :  { %151 = dma.done.wait [#allocation2], 128 /* pipeline-emitter-dma-wait */ }
+  0x14   :  { %152 = vsyncadd [#allocation2], 4294967168 }
+  0x15   :  { %88 = vsyncpa [#allocation2], 1 }
+  0x16   :  { %89 = vsyncpa [#allocation1], 1 } /* exit bundle: %reshape.2 = reshape(%Arg_0.1) */

@@ -1,0 +1,22 @@
+BufferAssignment:
+allocation 0: size 4096, output shape is |f32[1024]|, maybe-live-out:
+ value: <0 iota.1 @0> (size=4096,offset=0): f32[1024]{0:T(1024)}
+allocation 1: size 0, color 1, preallocated-temp:
+
+Total bytes used: 4096 (4.0KiB)
+
+Used values:
+<0 iota.1 @0>
+ positions:
+  iota.1
+ uses:
+ from instruction: %iota.1 = f32[1024]{0:T(1024)} iota(), iota_dimension=0, metadata={op_name="jit(iota)/jit(main)/iota" source_file="/tmp/ipython-input-480576302.py" source_line=8}
+
+
+HloLiveRange (max 1):
+  InstructionSequence:
+    0:iota.1
+  BufferLiveRange:
+    iota.1{}:0-1
+  Live ranges at 0 (peak):
+    iota.1: 4096 bytes

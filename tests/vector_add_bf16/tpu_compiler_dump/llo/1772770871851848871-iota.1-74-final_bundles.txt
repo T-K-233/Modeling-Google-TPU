@@ -1,0 +1,30 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %1 = vsyncpa [#allocation2], 0  ;;  %v2_v0 = vlaneseq  ;;  %s63_s3 = smov [#allocation0] /* materialized constant */  ;;  %s72_s0 = inlined_call_operand.hbm [shape: bf16[2048], index: 0, kind: output, shape index: {}] /* operand 0 */ } /* entry bundle: %iota.1 = iota() */
+   0x1   :  { %s27_s4 = sshll.u32 %s63_s3, 4  ;;  %s29_s0 = sshll.u32 %s72_s0, 4  ;;  %s28_s4 = int_to_ptr.vmem [resolvable:$true] %s27_s4  ;;  %s30_s0 = int_to_ptr.hbm [resolvable:$true] %s29_s0 }
+   0x2   :  { %v5_v1 = vshrl.u32 %v2_v0, 16  ;;  %v6_v2 = vand.u32 65535, %v2_v0  ;;  %v13_v3 = vadd.s32 1024, %v2_v0 }
+   0x3   :  { %v7_v4 = vcvt.s32.f32 %v5_v1  ;;  %v9_v5 = vcvt.s32.f32 %v6_v2  ;;  %v14_v6 = vshrl.u32 %v13_v3, 16  ;;  %v15_v7 = vand.u32 65535, %v13_v3 }
+   0x4   :  { %v8_v8 = vmul.f32 65536.0, %v7_v4  ;;  %v16_v9 = vcvt.s32.f32 %v14_v6  ;;  %v18_v10 = vcvt.s32.f32 %v15_v7 }
+   0x5   :  { %v10_v11 = vadd.f32 %v9_v5, %v8_v8  ;;  %v17_v12 = vmul.f32 65536.0, %v16_v9 }
+   0x6   :  { %v19_v13 = vadd.f32 %v18_v10, %v17_v12 }
+   0x7   :  { %v22_v14 = vpack.c.bf16 %v19_v13, %v10_v11 }
+   0x8   :  { %23 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v22_v14 }
+   0x9   :  { %32 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s28_s4, /*size_in_granules=*/128, /*hbm=*/%s30_s0, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (2)
+dynamic_base_bounds: (2)
+window_bounds: (2)
+iteration_bounds: (1)
+strides: (2)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 2048 */ }
+   0xa   :  { %61 = dma.done.wait [#allocation2], 128 /* pipeline-emitter-dma-wait */ }
+   0xb   :  { %62 = vsyncadd [#allocation2], 4294967168 }
+   0xc   :  { %35 = vsyncpa [#allocation2], 1 } /* exit bundle: %iota.1 = iota() */

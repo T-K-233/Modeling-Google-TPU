@@ -1,0 +1,57 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %4 = vsyncpa [#allocation1], 0  ;;  %s204_s0 = inlined_call_operand.vmem [shape: f32[8,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s205_s1 = inlined_call_operand.hbm [shape: f32[128,8], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s206_s2 = inlined_call_operand.hbm [shape: f32[8], index: 2, kind: input, shape index: {}] /* operand 2 */  ;;  %s207_s3 = inlined_call_operand.hbm [shape: f32[8,8], index: 3, kind: output, shape index: {}] /* operand 3 */ } /* entry bundle: %convolution_add_fusion = fusion(%copy-done, %Arg_1.2, %Arg_2.3) */
+   0x1   :  { %5 = vsyncpa [#allocation4], 0 }
+   0x2   :  { %6 = vsyncpa [#allocation2], 0  ;;  %s14_s14 = sshll.u32 %s205_s1, 4  ;;  %s169_s15 = smov [#allocation0] /* materialized constant */  ;;  %s15_s14 = int_to_ptr.hbm [resolvable:$true] %s14_s14 }
+   0x3   :  { %s16_s16 = sshll.u32 %s169_s15, 4  ;;  %s25_s19 = sshll.u32 %s206_s2, 4  ;;  %s17_s16 = int_to_ptr.vmem [resolvable:$true] %s16_s16  ;;  %s26_s19 = int_to_ptr.hbm [resolvable:$true] %s25_s19 }
+   0x4   :  { %19 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s15_s14, /*size_in_granules=*/128, /*vmem=*/%s17_s16, /*dst_syncflagno=*/[#allocation1] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+   0x5   :  { %s170_s20 = smov [#allocation3] /* materialized constant */ }
+   0x6   :  { %s27_s21 = sshll.u32 %s170_s20, 4  ;;  %s28_s21 = int_to_ptr.vmem [resolvable:$true] %s27_s21 }
+   0x7   :  { %30 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s26_s19, /*size_in_granules=*/16, /*vmem=*/%s28_s21, /*dst_syncflagno=*/[#allocation4] /* 
+base_bounds: (1)
+dynamic_base_bounds: (1)
+window_bounds: (1)
+iteration_bounds: (1, 1, 1)
+strides: (1)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+   0x8   :  { %163 = dma.done.wait [#allocation1], 128 /* pipeline-emitter-dma-wait */ }
+   0x9   :  { %164 = vsyncadd [#allocation1], 4294967168  ;;  %v59_v0 = vld [vmem:[#allocation0] sm:$0xff] }
+   0xa   :  { %62 = vmatpush.xpose.msra.mxu0 %v59_v0  ;;  %v57_v1 = vld [vmem:[%s204_s0] sm:$0xff] }
+   0xb   :  { %165 = dma.done.wait [#allocation4], 16 /* pipeline-emitter-dma-wait */ }
+   0xc   :  { %64 = vmatmul.f32.vlgmr.msra.gmra.mxu0 %v57_v1 }
+   0xd   :  { %166 = vsyncadd [#allocation4], 4294967280  ;;  %v66_v2 = vld [vmem:[#allocation3] ss:$0 sm:$0xff]  ;;  %s171_s23 = smov [#allocation5] /* materialized constant */  ;;  %s77_s26 = sshll.u32 %s207_s3, 4  ;;  %s78_s26 = int_to_ptr.hbm [resolvable:$true] %s77_s26 }
+   0xe   :  { %s75_s2 = sshll.u32 %s171_s23, 4  ;;  %s76_s2 = int_to_ptr.vmem [resolvable:$true] %s75_s2 }
+   0xf   :  { %v65_v3 = vpop.f32.mrf.mxu0 }
+  0x10   :  { %v67_v4 = vadd.f32 %v66_v2, %v65_v3 }
+  0x11   :  { %68 = vst [vmem:[#allocation5] sm:$0xff] /*vst_source=*/%v67_v4 }
+  0x12   :  { %80 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s76_s2, /*size_in_granules=*/128, /*hbm=*/%s78_s26, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+  0x13   :  { %167 = dma.done.wait [#allocation2], 128 /* pipeline-emitter-dma-wait */ }
+  0x14   :  { %168 = vsyncadd [#allocation2], 4294967168 }
+  0x15   :  { %85 = vsyncpa [#allocation1], 1 }
+  0x16   :  { %86 = vsyncpa [#allocation4], 1 }
+  0x17   :  { %87 = vsyncpa [#allocation2], 1 } /* exit bundle: %convolution_add_fusion = fusion(%copy-done, %Arg_1.2, %Arg_2.3) */

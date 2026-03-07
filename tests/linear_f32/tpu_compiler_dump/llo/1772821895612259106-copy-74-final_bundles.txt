@@ -1,0 +1,48 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %s268_s0 = inlined_call_operand.vmem [shape: f32[128,8], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s269_s1 = inlined_call_operand.hbm [shape: f32[128,8], index: 1, kind: output, shape index: {}] /* operand 1 */ } /* entry bundle: %copy = copy(%reshape.2) */
+   0x1   :  { %v15_v0 = vld [vmem:[%s268_s0] sm:$0xff] }
+   0x2   :  { %143 = vxpose.xlu0.b32.start [1/16] (narrow) /*vx=*/%v15_v0, /*width=*/8 }
+   0x3   :  { %2 = vsyncpa [#allocation3], 0  ;;  %v17_v1 = vld [vmem:[%s268_s0 + $0x8] sm:$0xff]  ;;  %v19_v2 = vld [vmem:[%s268_s0 + $0x10] sm:$0xff]  ;;  %s168_s1 = sshll.u32 %s269_s1, 4  ;;  %s169_s1 = int_to_ptr.hbm [resolvable:$true] %s168_s1 }
+   0x4   :  { %v21_v3 = vld [vmem:[%s268_s0 + $0x18] sm:$0xff]  ;;  %v23_v4 = vld [vmem:[%s268_s0 + $0x20] sm:$0xff]  ;;  %v25_v5 = vld [vmem:[%s268_s0 + $0x28] sm:$0xff] }
+   0x5   :  { %v27_v6 = vld [vmem:[%s268_s0 + $0x30] sm:$0xff]  ;;  %v29_v7 = vld [vmem:[%s268_s0 + $0x38] sm:$0xff]  ;;  %v31_v8 = vld [vmem:[%s268_s0 + $0x40] sm:$0xff] }
+   0x6   :  { %v33_v9 = vld [vmem:[%s268_s0 + $0x48] sm:$0xff]  ;;  %v35_v10 = vld [vmem:[%s268_s0 + $0x50] sm:$0xff]  ;;  %v37_v11 = vld [vmem:[%s268_s0 + $0x58] sm:$0xff] }
+   0x7   :  { %v39_v12 = vld [vmem:[%s268_s0 + $0x60] sm:$0xff]  ;;  %v41_v13 = vld [vmem:[%s268_s0 + $0x68] sm:$0xff]  ;;  %v43_v14 = vld [vmem:[%s268_s0 + $0x70] sm:$0xff] }
+   0x8   :  { %v45_v15 = vld [vmem:[%s268_s0 + $0x78] sm:$0xff]  ;;  %s206_s0 = smov [#allocation1] /* materialized constant */ }
+   0x9   :  { %s166_s9 = sshll.u32 %s206_s0, 4  ;;  %s167_s9 = int_to_ptr.vmem [resolvable:$true] %s166_s9 }
+   0xa   :  { %144 = vxpose.xlu0.b32.cont [2/16] (narrow) /*vx=*/%v17_v1, /*width=*/8 }
+   0xb   :  { %145 = vxpose.xlu0.b32.cont [3/16] (narrow) /*vx=*/%v19_v2, /*width=*/8 }
+   0xc   :  { %146 = vxpose.xlu0.b32.cont [4/16] (narrow) /*vx=*/%v21_v3, /*width=*/8 }
+   0xd   :  { %147 = vxpose.xlu0.b32.cont [5/16] (narrow) /*vx=*/%v23_v4, /*width=*/8 }
+   0xe   :  { %148 = vxpose.xlu0.b32.cont [6/16] (narrow) /*vx=*/%v25_v5, /*width=*/8 }
+   0xf   :  { %149 = vxpose.xlu0.b32.cont [7/16] (narrow) /*vx=*/%v27_v6, /*width=*/8 }
+  0x10   :  { %150 = vxpose.xlu0.b32.cont [8/16] (narrow) /*vx=*/%v29_v7, /*width=*/8 }
+  0x11   :  { %151 = vxpose.xlu0.b32.cont [9/16] (narrow) /*vx=*/%v31_v8, /*width=*/8 }
+  0x12   :  { %152 = vxpose.xlu0.b32.cont [10/16] (narrow) /*vx=*/%v33_v9, /*width=*/8 }
+  0x13   :  { %153 = vxpose.xlu0.b32.cont [11/16] (narrow) /*vx=*/%v35_v10, /*width=*/8 }
+  0x14   :  { %154 = vxpose.xlu0.b32.cont [12/16] (narrow) /*vx=*/%v37_v11, /*width=*/8 }
+  0x15   :  { %155 = vxpose.xlu0.b32.cont [13/16] (narrow) /*vx=*/%v39_v12, /*width=*/8 }
+  0x16   :  { %156 = vxpose.xlu0.b32.cont [14/16] (narrow) /*vx=*/%v41_v13, /*width=*/8 }
+  0x17   :  { %157 = vxpose.xlu0.b32.cont [15/16] (narrow) /*vx=*/%v43_v14, /*width=*/8 }
+  0x18   :  { %158 = vxpose.xlu0.b32.end [16/16] (narrow) /*vx=*/%v45_v15, /*width=*/8 }
+  0x19   :  { %v159_v16 = vpop.trf.xlu0 }
+  0x1a   :  { %162 = vst [vmem:[#allocation1] sm:$0xff] /*vst_source=*/%v159_v16 /* (strided) store 0000:00, stride: 1, sublanes: 8 */ }
+  0x1b   :  { %171 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s167_s9, /*size_in_granules=*/128, /*hbm=*/%s169_s1, /*dst_syncflagno=*/[#allocation3] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+  0x1c   :  { %204 = dma.done.wait [#allocation3], 128 /* pipeline-emitter-dma-wait */ }
+  0x1d   :  { %205 = vsyncadd [#allocation3], 4294967168 }
+  0x1e   :  { %174 = vsyncpa [#allocation3], 1 } /* exit bundle: %copy = copy(%reshape.2) */

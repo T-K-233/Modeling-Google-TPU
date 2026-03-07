@@ -1,0 +1,32 @@
+HloModule jit_linear_f32, is_scheduled=true, entry_computation_layout={(f32[8,128]{1,0:T(8,128)}, f32[128,8]{0,1:T(8,128)}, f32[8]{0:T(128)})->f32[8,8]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true,true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+%bitcast_fusion (bitcast_input: f32[8,128]) -> f32[8,128] {
+  %bitcast_input = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  ROOT %bitcast = f32[8,128]{1,0:T(8,128)} bitcast(%bitcast_input)
+}
+
+%bitcast_fusion.1 (bitcast_input.1: f32[128,8]) -> f32[128,8] {
+  %bitcast_input.1 = f32[128,8]{0,1:T(8,128)} parameter(0)
+  ROOT %bitcast.1 = f32[128,8]{0,1:T(8,128)} bitcast(%bitcast_input.1)
+}
+
+%fused_computation (param_0.2: f32[8,128], param_1.2: f32[128,8], param_2.1: f32[8]) -> f32[8,8] {
+  %param_0.2 = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  %fusion = f32[8,128]{1,0:T(8,128)} fusion(%param_0.2), kind=kLoop, calls=%bitcast_fusion
+  %param_1.2 = f32[128,8]{0,1:T(8,128)} parameter(1)
+  %fusion.1 = f32[128,8]{0,1:T(8,128)} fusion(%param_1.2), kind=kLoop, calls=%bitcast_fusion.1
+  %convolution.1 = f32[8,8]{1,0:T(8,128)} convolution(%fusion, %fusion.1), dim_labels=bf_io->bf, metadata={op_name="jit(linear_f32)/jit(main)/linear_f32/dot_general" source_file="/tmp/ipython-input-2063602274.py" source_line=5}
+  %param_2.1 = f32[8]{0:T(128)} parameter(2)
+  %broadcast.1 = f32[8,8]{1,0:T(8,128)} broadcast(%param_2.1), dimensions={1}, metadata={op_name="jit(linear_f32)/jit(main)/linear_f32/add" source_file="/tmp/ipython-input-2063602274.py" source_line=6}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":["128"]}}
+  ROOT %add.0 = f32[8,8]{1,0:T(8,128)} add(%convolution.1, %broadcast.1), metadata={op_name="jit(linear_f32)/jit(main)/linear_f32/add" source_file="/tmp/ipython-input-2063602274.py" source_line=6}
+}
+
+ENTRY %main.10 (Arg_0.1: f32[8,128], Arg_1.2: f32[128,8], Arg_2.3: f32[8]) -> f32[8,8] {
+  %Arg_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  %copy-start = (f32[8,128]{1,0:T(8,128)S(1)}, f32[8,128]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(%Arg_0.1), cross_program_prefetch_index=0
+  %Arg_2.3 = f32[8]{0:T(128)} parameter(2), metadata={op_name="b"}
+  %Arg_1.2 = f32[128,8]{0,1:T(8,128)} parameter(1), metadata={op_name="w"}
+  %copy-done = f32[8,128]{1,0:T(8,128)S(1)} copy-done(%copy-start)
+  ROOT %convolution_add_fusion = f32[8,8]{1,0:T(8,128)} fusion(%copy-done, %Arg_1.2, %Arg_2.3), kind=kOutput, calls=%fused_computation, metadata={op_name="jit(linear_f32)/jit(main)/linear_f32/dot_general" source_file="/tmp/ipython-input-2063602274.py" source_line=5}
+}
+

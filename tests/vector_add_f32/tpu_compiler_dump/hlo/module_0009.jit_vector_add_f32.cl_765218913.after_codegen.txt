@@ -1,0 +1,8 @@
+HloModule jit_vector_add_f32, is_scheduled=true, entry_computation_layout={(f32[8,128]{1,0:T(8,128)}, f32[8,128]{1,0:T(8,128)})->f32[8,128]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+ENTRY %main.4 (Arg_0.1: f32[8,128], Arg_1.2: f32[8,128]) -> f32[8,128] {
+  %Arg_1.2 = f32[8,128]{1,0:T(8,128)} parameter(1), metadata={op_name="y"}
+  %Arg_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  ROOT %add.3 = f32[8,128]{1,0:T(8,128)} add(%Arg_0.1, %Arg_1.2), metadata={op_name="jit(vector_add_f32)/jit(main)/vector_add_f32/add" source_file="/tmp/ipython-input-480576302.py" source_line=5}, backend_config={"flag_configs":[],"window_config":{"kernel_window_bounds":[],"output_window_bounds":["1","1"],"input_window_bounds":[],"estimated_cycles":"1840","iteration_bounds":["1","1"]},"scoped_memory_configs":[],"used_scoped_memory_configs":[{"memory_space":"1","offset":"0","size":"12288"}],"retry_config":{"retry_count":"0"}}
+}
+
