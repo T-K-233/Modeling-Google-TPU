@@ -169,6 +169,21 @@ def inlined_call_operand_smem(state: ArchState, dest_reg: str, params: dict[str,
     state.write_xreg(dest_reg, int(byte_addr))
 
 
+@instr("scalar_parameter_address")
+def scalar_parameter_address(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Load stage parameter address by index for TLP execution."""
+    index = _parse_int(params.get("imm1", 0))
+    runtime_params = getattr(state, "runtime_scalar_parameters", [])
+    value = runtime_params[index] if 0 <= index < len(runtime_params) else 0
+    state.write_xreg(dest_reg, _as_u32(value))
+
+
+@instr("inlined_call")
+def inlined_call(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Call control transfer is handled in Simulator."""
+    return
+
+
 @instr("int_to_ptr.hbm")
 def int_to_ptr_hbm(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Cast an integer to an HBM (high-bandwidth memory) pointer type.
@@ -219,7 +234,7 @@ def vsyncpa(state: ArchState, _: str, params: dict[str, Any]):
     value = params["rs1"]
     addr_val = _parse_operand(state, addr)
     assert (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize), f"SFLAG address out of bounds: {addr_val}"
-    state.write_sflag(addr_val, _parse_int(value))
+    state.write_sflag(addr_val, _parse_operand(state, value))
 
 
 @instr("vsyncadd")
@@ -238,7 +253,7 @@ def vsyncadd(state: ArchState, _: str, params: dict[str, Any]):
     if not (0 <= addr_val <= state.sflag_size - torch.uint32.itemsize):
         return
     flag_value = state.read_sflag(addr_val)
-    flag_value = (flag_value + _parse_int(value)) % 256
+    flag_value = (flag_value + _parse_operand(state, value)) % 256
     state.write_sflag(addr_val, flag_value)
 
 
@@ -269,7 +284,7 @@ def dma_hbm_to_vmem(state: ArchState, _: str, params: dict[str, Any]):
     src_addr = src_addr_granules >> 4
     dest_addr = dest_addr_granules >> 4
     # TODO: not sure why need to multiply by 32
-    size = _parse_int(size_in_granules) << 5
+    size = _parse_operand(state, size_in_granules) << 5
     state.write_vmem(dest_addr, state.read_hbm(src_addr, size))
 
 
@@ -297,7 +312,7 @@ def dma_vmem_to_hbm(state: ArchState, _: str, params: dict[str, Any]):
     src_addr = src_addr_granules >> 4
     dest_addr = dest_addr_granules >> 4
     # TODO: not sure why need to multiply by 32
-    size = _parse_int(size_in_granules) << 5
+    size = _parse_operand(state, size_in_granules) << 5
     state.write_hbm(dest_addr, state.read_vmem(src_addr, size))
 
 
@@ -370,6 +385,17 @@ def sshra_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.write_xreg(dest_reg, _as_u32(value >> _parse_int(imm)))
 
 
+@instr("sshrl.u32")
+def sshrl_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Scalar shift right logical: dest = src >> imm (u32)."""
+    if not _predicate_active(state, params):
+        return
+    src_reg = params["rs1"]
+    imm = params["imm1"]
+    value = _as_u32(_parse_operand(state, src_reg))
+    state.write_xreg(dest_reg, _as_u32(value >> (_parse_int(imm) & 31)))
+
+
 @instr("sadd.s32")
 def sadd_s32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Scalar add: dest = a + b (s32, truncated to u32)."""
@@ -408,6 +434,26 @@ def sand_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
     a = params["rs1"]
     b = params["rs2"]
     state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) & _parse_operand(state, b)))
+
+
+@instr("smul.u32")
+def smul_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Scalar multiply (u32 wraparound): dest = a * b."""
+    if not _predicate_active(state, params):
+        return
+    a = params["rs1"]
+    b = params["rs2"]
+    state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) * _parse_operand(state, b)))
+
+
+@instr("sxor.u32")
+def sxor_u32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Scalar bitwise xor: dest = a ^ b (u32)."""
+    if not _predicate_active(state, params):
+        return
+    a = params["rs1"]
+    b = params["rs2"]
+    state.write_xreg(dest_reg, _as_u32(_parse_operand(state, a) ^ _parse_operand(state, b)))
 
 
 @instr("scalar_select")
@@ -613,7 +659,6 @@ def vld(state: ArchState, dest_reg: str, params: dict[str, Any]):
         reg_val = state.read_xreg(reg.strip())
         offset = offset.strip()
         offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
-        offset_val = offset_val << 9
         address = reg_val + offset_val
 
     elif sreg_or_imm.startswith("s"):
@@ -657,11 +702,19 @@ def vst(state: ArchState, _: str, params: dict[str, Any]):
     sublane_mask = params["sm"]
     vsrc_reg = params["vs1"]
     data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    if isinstance(address, str) and address.startswith("s"):
-        address = state.read_xreg(address)
+    if isinstance(address, str):
+        if "+" in address:
+            reg, offset = address.split("+", 1)
+            reg_val = state.read_xreg(reg.strip())
+            offset = offset.strip()
+            offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
+            address = reg_val + offset_val
+        elif address.startswith("s"):
+            address = state.read_xreg(address)
+        else:
+            address = int(address, 16) if address.startswith("0x") else int(address)
     else:
-        address_str = str(address)
-        address = int(address_str, 16) if address_str.startswith("0x") else int(address_str)
+        address = int(address)
 
     mask_val = int(sublane_mask)
     if mask_val == 255:
@@ -692,11 +745,19 @@ def vst_msk(state: ArchState, dest_reg: str, params: dict[str, Any]):
     sublane_mask = params["sm"]
     vsrc_reg = params["vs1"]
     data = state.read_vreg(vsrc_reg, dtype=torch.uint8)
-    if isinstance(address, str) and address.startswith("s"):
-        address = state.read_xreg(address)
+    if isinstance(address, str):
+        if "+" in address:
+            reg, offset = address.split("+", 1)
+            reg_val = state.read_xreg(reg.strip())
+            offset = offset.strip()
+            offset_val = int(offset, 16) if offset.startswith("0x") else int(offset)
+            address = reg_val + offset_val
+        elif address.startswith("s"):
+            address = state.read_xreg(address)
+        else:
+            address = int(address, 16) if address.startswith("0x") else int(address)
     else:
-        address_str = str(address)
-        address = int(address_str, 16) if address_str.startswith("0x") else int(address_str)
+        address = int(address)
 
     mask_val = int(sublane_mask)
     if mask_val == 255:
@@ -973,8 +1034,19 @@ def vsel(state: ArchState, dest_reg: str, params: dict[str, Any]):
 
 @instr("vlaneseq")
 def vlaneseq(state: ArchState, dest_reg: str, params: dict[str, Any]):
-    """Lane index sequence [0..127] replicated across sublanes."""
-    seq = torch.arange(state.num_lanes, dtype=torch.int64).to(torch.uint32).unsqueeze(0).repeat(state.num_sublanes, 1)
+    """Lane index sequence as a linear register-space id.
+
+    Hardware semantics for emitted iota kernels require values to advance
+    across both lane and sublane dimensions so a single vreg carries
+    [0..num_sublanes*num_lanes-1] in row-major order.
+    """
+    base = (
+        torch.arange(state.num_sublanes, dtype=torch.int64)
+        .unsqueeze(1)
+        .mul(state.num_lanes)
+    )
+    lane = torch.arange(state.num_lanes, dtype=torch.int64).unsqueeze(0)
+    seq = (base + lane).to(torch.uint32).contiguous()
     state.write_vreg(dest_reg, seq)
 
 
@@ -1002,6 +1074,15 @@ def vperm_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     state.last_permute_token = token
 
 
+def _permute_token(params: dict[str, Any], state: ArchState) -> str | None:
+    token = params.get("imm1", state.last_permute_token)
+    if token is None or (isinstance(token, int) and token == 0):
+        token = state.last_permute_token
+    if token is None:
+        return None
+    return str(token)
+
+
 @instr("vpop.permute.xlu0")
 def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Pop permuted data from the functional permute buffer.
@@ -1009,9 +1090,7 @@ def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     Current model covers the emitted TPU patterns used by these kernels:
     source vectors of logical shape [8] are expanded into per-row broadcasts.
     """
-    token = params.get("imm1", state.last_permute_token)
-    if token is None or (isinstance(token, int) and token == 0):
-        token = state.last_permute_token
+    token = _permute_token(params, state)
     if token is None or token not in state.permute_buffer:
         state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
         return
@@ -1019,6 +1098,26 @@ def vpop_permute_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vec8 = src[0, :state.num_sublanes]
     out = vec8.unsqueeze(1).repeat(1, state.num_lanes).contiguous()
     state.write_vreg(dest_reg, out)
+
+
+@instr("vpop.permute.xlu1")
+def vpop_permute_xlu1(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pop a value from the permute token buffer (xlu1 variant)."""
+    token = _permute_token(params, state)
+    if token is None or token not in state.permute_buffer:
+        state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
+        return
+    state.write_vreg(dest_reg, state.permute_buffer[token].clone())
+
+
+@instr("vpop.permute.xlu2")
+def vpop_permute_xlu2(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pop a value from the permute token buffer (xlu2 variant)."""
+    token = _permute_token(params, state)
+    if token is None or token not in state.permute_buffer:
+        state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
+        return
+    state.write_vreg(dest_reg, state.permute_buffer[token].clone())
 
 
 @instr("vrcp.f32")
@@ -1071,6 +1170,34 @@ def vrot_slane(state: ArchState, dest_reg: str, params: dict[str, Any]):
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
     vdest_data = vsrc_data.roll(shift_amount, dims=0)
     state.write_vreg(dest_reg, vdest_data)
+
+
+def _vrot_lane_b32(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    src = params["vs1"]
+    shift_token = params.get("rs1", params.get("imm1", 0))
+    shift = _parse_operand(state, shift_token) % state.num_lanes
+    rotated = _vector_operand_f32(state, src).roll(shifts=shift, dims=1).contiguous()
+    token = dest_reg if dest_reg else f"perm_{len(state.permute_buffer)}"
+    state.permute_buffer[token] = rotated
+    state.last_permute_token = token
+
+
+@instr("vrot.lane.b32.xlu0")
+def vrot_lane_b32_xlu0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Lane rotation feeding XLU0 permute path."""
+    _vrot_lane_b32(state, dest_reg, params)
+
+
+@instr("vrot.lane.b32.xlu1")
+def vrot_lane_b32_xlu1(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Lane rotation feeding XLU1 permute path."""
+    _vrot_lane_b32(state, dest_reg, params)
+
+
+@instr("vrot.lane.b32.xlu2")
+def vrot_lane_b32_xlu2(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Lane rotation feeding XLU2 permute path."""
+    _vrot_lane_b32(state, dest_reg, params)
 
 
 @instr("vcmask")
@@ -1248,7 +1375,8 @@ def vxpose_xlu0_b32_start_end(state: ArchState, _: str, params: dict[str, Any]):
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
+    transposed = vsrc_data.transpose(0, 1).contiguous()
+    state.xlu_buffer[0:num_lanes, :] = transposed[0:num_lanes, :]
     state.xlu_pop_width = state.num_sublanes
 
 
@@ -1265,7 +1393,8 @@ def vxpose_xlu0_b32_start(state: ArchState, _: str, params: dict[str, Any]):
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
-    state.xlu_buffer[0:num_lanes, :] = vsrc_data.transpose(0, 1)
+    transposed = vsrc_data.transpose(0, 1).contiguous()
+    state.xlu_buffer[0:num_lanes, :] = transposed[0:num_lanes, :]
     state.xlu_pop_width = state.num_sublanes
 
 
@@ -1281,10 +1410,17 @@ def vxpose_xlu0_b32_end(state: ArchState, _: str, params: dict[str, Any]):
     num_lanes = int(num_lanes)
     assert num_lanes <= state.num_lanes
     vsrc_data = state.read_vreg(vsrc_reg, dtype=torch.float32)
+    transposed = vsrc_data.transpose(0, 1).contiguous()
     # For a start/end pair, append into the second half of the XLU staging
     # buffer so subsequent vpop.trf can consume both halves sequentially.
-    state.xlu_buffer[state.num_lanes:state.num_lanes + num_lanes, :] = vsrc_data.transpose(0, 1)
+    state.xlu_buffer[state.num_lanes:state.num_lanes + num_lanes, :] = transposed[0:num_lanes, :]
     state.xlu_pop_width = state.num_sublanes * 2
+
+
+@instr("vxpose.xlu0.b32.cont")
+def vxpose_xlu0_b32_cont(state: ArchState, _: str, params: dict[str, Any]):
+    """Continuation marker for XLU transpose sequence (no-op in this model)."""
+    return
 
 
 @instr("vpop.trf.xlu0")
@@ -1498,3 +1634,52 @@ def vpop_f32_mrf_mxu3(state: ArchState, dest_reg: str, params: dict[str, Any]):
     """Pop matrix result from MXU3 accumulator into vector register."""
     result = state.pop_mxu_accumulator("mxu3")
     state.write_vreg(dest_reg, result)
+
+
+@instr("vtrace")
+def vtrace(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Tracing marker instruction (no-op)."""
+    return
+
+
+@instr("compiler-scheduling-barrier")
+def compiler_scheduling_barrier(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Compiler scheduling fence (no-op)."""
+    return
+
+
+@instr("vsettm")
+def vsettm(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Tile mask control (not modeled)."""
+    return
+
+
+@instr("setrngseed")
+def setrngseed(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """RNG seed setup (not modeled)."""
+    return
+
+
+@instr("vrng")
+def vrng(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """RNG value generation (returns zeros in this model)."""
+    if dest_reg and dest_reg.startswith("v"):
+        state.write_vreg(dest_reg, torch.zeros(state.num_sublanes, state.num_lanes, dtype=torch.float32))
+
+
+@instr("vdelay")
+def vdelay(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """Pipeline delay slot (no-op)."""
+    return
+
+
+@instr("vsetiar.raw.iar0")
+def vsetiar_raw_iar0(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """IAR0 setup (not modeled)."""
+    return
+
+
+@instr("vsetiar.raw.iar1")
+def vsetiar_raw_iar1(state: ArchState, dest_reg: str, params: dict[str, Any]):
+    """IAR1 setup (not modeled)."""
+    return

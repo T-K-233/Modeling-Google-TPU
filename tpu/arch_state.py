@@ -71,6 +71,7 @@ class ArchState:
         self.xlu_buffer: torch.Tensor = torch.zeros(2 * self.num_lanes, self.num_sublanes, dtype=torch.float32)
         """ XLU buffer: (2 x 128, 8) shift buffer """
         self.xlu_pop_width = self.num_sublanes
+        self.runtime_scalar_parameters: list[int] = []
 
     def read_xreg(self, src: str) -> int:
         return self.xreg[src]

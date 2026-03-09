@@ -1,40 +1,33 @@
-from pathlib import Path
-
 import torch
 
 from tpu.sim import Simulator
 
 
-program_path = Path("./tests/lane_reduce_bf16/tpu_compiler_dump/llo/1771959547088034911-reduce")
-
-
 if __name__ == "__main__":
     sim = Simulator(verbose=True)
 
-    a = torch.arange(0, 16*128, dtype=torch.bfloat16).reshape(16, 128)
-    # a = torch.ones(16, 128, dtype=torch.bfloat16)
+    # Run the full multi-kernel linear_f32 program from tests.
+    sim.load_program("./tests/linear_f32/tpu_compiler_dump/llo")
 
-    # b = torch.arange(0, 8*128, dtype=torch.float32).reshape(128, 8)
+    # Inputs and golden computation mirror tests/linear_f32/source.py.
+    x = torch.arange(8 * 128, dtype=torch.float32).reshape(8, 128)
+    w = torch.arange(8 * 128, dtype=torch.float32).reshape(128, 8)
+    b = torch.arange(8, dtype=torch.float32)
+    golden = x @ w + b
 
-    # a = torch.ones(8, 128, dtype=torch.float32)
-    # b = torch.ones(128, 8, dtype=torch.float32)
+    sim.run_all_kernels()
 
-    sim.load_program(program_path)
-    sim.load_program_data({
-        "#operand0": a,
-        # "#operand1": b,
-    })
+    assert sim.final_output_address is not None
+    result = sim.state.read_hbm(
+        sim.final_output_address,
+        8 * 8 * torch.float32.itemsize,
+        dtype=torch.float32,
+    ).reshape(8, 8)
 
-    sim.run()
+    print("HBM result (first 4x4):")
+    print(result[0:4, 0:4])
 
-    result = sim.state.read_hbm(sim.symbol_table["#operand2"].base_address, 8 * 128 * 4, dtype=torch.float32)
-    result = result.reshape(8, 128)
-    print("HBM result:")
-    print(result[0:8, 0:10])
+    print("Golden result (first 4x4):")
+    print(golden[0:4, 0:4])
 
-    c = a.sum(dim=1)
-
-    # assert torch.allclose(result, torch.ones(8, 128, dtype=torch.float32)*2)
-
-    print("Golden result:")
-    print(c)
+    print("Allclose:", torch.allclose(result, golden, rtol=1e-5, atol=1e-8))

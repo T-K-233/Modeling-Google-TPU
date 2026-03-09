@@ -2,6 +2,8 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 
+from .instruction import InstructionBundle
+
 
 OperandValue = str | int | None
 
@@ -32,7 +34,7 @@ class BundleParser:
     )
     # Matches: #allocation0 [shape = '...', space=vmem, size = 0x2000, ...] (stack3)
     _ALLOCATION_RE = re.compile(
-        r"^\s*(#allocation\d+(?:_[A-Za-z0-9]+)?)\s+\[.*?space\s*=\s*(\w+).*?size\s*=\s*(0x[0-9a-fA-F]+|\d+).*?\]"
+        r"^\s*(#allocation\d+(?:_[A-Za-z0-9]+)?)\s+\[.*?space\s*=\s*(\w+).*?size\s*=\s*(0x[0-9a-fA-F]+|\d+).*?(?:offset\s*=\s*(0x[0-9a-fA-F]+|\d+))?.*?\]"
     )
 
     ALLOCATION_SUFFIX = "-post-delay-converter.txt"
@@ -48,8 +50,10 @@ class BundleParser:
     _PREDICATED_TERNARY_SCALAR_OPS = {
         "sadd.s32",
         "ssub.s32",
+        "smul.u32",
         "sor.u32",
         "sand.u32",
+        "sxor.u32",
         "scalar_lea.vmem",
         "scalar_lea.hbm",
         "scalar_lea.sflag",
@@ -113,6 +117,11 @@ class BundleParser:
     def _operand_schema_for_opcode(cls, opcode: str) -> list[str] | None:
         if opcode.startswith("inlined_call_operand."):
             return ["imm1"]
+        if opcode == "inlined_call":
+            # Variable arity, handled in _parse_one_instruction.
+            return None
+        if opcode == "scalar_parameter_address":
+            return ["imm1"]
         if opcode.startswith("int_to_ptr."):
             return ["rs1"]
         if opcode in ("vsyncpa", "vsyncadd"):
@@ -124,6 +133,8 @@ class BundleParser:
         if opcode == "smov":
             return ["pred", "rs1", "rs2"]
         if opcode in ("sshll.u32", "sshra.s32"):
+            return ["pred", "rs1", "imm1"]
+        if opcode == "sshrl.u32":
             return ["pred", "rs1", "imm1"]
         if opcode in cls._PREDICATED_TERNARY_SCALAR_OPS:
             return ["pred", "rs1", "rs2"]
@@ -170,8 +181,12 @@ class BundleParser:
             return ["vs1", "imm1"]
         if opcode == "vpop.permute.xlu0":
             return ["imm1"]
+        if opcode in ("vpop.permute.xlu1", "vpop.permute.xlu2"):
+            return ["imm1"]
         if opcode == "vrot.slane":
             return ["vs1", "imm1"]
+        if opcode in ("vrot.lane.b32.xlu0", "vrot.lane.b32.xlu1", "vrot.lane.b32.xlu2"):
+            return ["vs1", "rs1"]
         if opcode == "vcmask":
             return ["imm1", "imm2"]
         if opcode in ("vpack.c.bf16", "vpack.c.b16", "vpack.c.b8"):
@@ -181,6 +196,8 @@ class BundleParser:
             "vxpose.xlu0.b32.start",
             "vxpose.xlu0.b32.end",
         ):
+            return ["vs1", "imm1"]
+        if opcode == "vxpose.xlu0.b32.cont":
             return ["vs1", "imm1"]
         if opcode == "vpop.trf.xlu0":
             return ["imm1"]
@@ -289,15 +306,25 @@ class BundleParser:
                 m = self._ALLOCATION_RE.search(line)
                 if not m:
                     continue
-                alloc_id, space, size_str = m.group(1), m.group(2), m.group(3)
+                alloc_id, space, size_str, offset_str = m.group(1), m.group(2), m.group(3), m.group(4)
                 size = int(size_str, 16) if size_str.startswith("0x") else int(size_str)
+                if offset_str:
+                    base_address = int(offset_str, 16) if offset_str.startswith("0x") else int(offset_str)
+                else:
+                    base_address = 0
                 allocations.append(
-                    Allocation(id=alloc_id, size=size, space=space, base_address=0)
+                    Allocation(id=alloc_id, size=size, space=space, base_address=base_address)
                 )
 
-        # Contiguous layout per space
+        # Fallback for missing offsets: contiguous layout per space.
         offset_by_space: dict[str, int] = {}
         for alloc in allocations:
+            if alloc.base_address != 0:
+                offset_by_space[alloc.space] = max(
+                    offset_by_space.get(alloc.space, 0),
+                    alloc.base_address + alloc.size,
+                )
+                continue
             base = offset_by_space.get(alloc.space, 0)
             alloc.base_address = base
             offset_by_space[alloc.space] = base + alloc.size
@@ -341,7 +368,7 @@ class BundleParser:
 
     # vmem: [#allocation0] or [#allocation0 + $0x8]
     _VMEM_ALLOC_RE = re.compile(
-        r"vmem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
+        r"vmem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*([+-])\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
     )
     # vmem: [%s165_s1] or [%s165_s1 + $0x78] (register-based address)
     _VMEM_REG_RE = re.compile(
@@ -349,7 +376,7 @@ class BundleParser:
     )
     # smem: [#allocation8_spill] or [#allocation0 + $0x4]
     _SMEM_ALLOC_RE = re.compile(
-        r"smem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*\+\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
+        r"smem:\s*\[(#allocation\d+(?:_[A-Za-z0-9]+)?)(?:\s*([+-])\s*\$?(0x[0-9a-fA-F]+|\d+))?\]"
     )
     # sm: mask immediate for vld/vst, e.g. sm:$0xf or sm:$0xff
     _VMEM_SMASK_IMM_RE = re.compile(r"sm:\s*\$?(0x[0-9a-fA-F]+|\d+)\b")
@@ -358,7 +385,7 @@ class BundleParser:
 
     # inlined_call_operand: [shape: f32[8,128], index: 0, kind: input, ...]
     _INLINED_CALL_OPERAND_RE = re.compile(
-        r"\[shape:\s*(\w+)\[([^\]]*)\],\s*index:\s*(\d+)"
+        r"\[shape:\s*(\w+)\[([^\]]*)\],\s*index:\s*(\d+),\s*kind:\s*(input|output)"
     )
 
     _DTYPE_BYTES: dict[str, int] = {
@@ -376,15 +403,15 @@ class BundleParser:
     @classmethod
     def _inlined_call_operand_info(
         cls, rest: str
-    ) -> tuple[str, list[int], int, int] | None:
+    ) -> tuple[str, list[int], int, int, str] | None:
         """Parse inlined_call_operand metadata.
 
-        Returns (dtype, dims, index, logical_size_bytes), or None if not parseable.
+        Returns (dtype, dims, index, logical_size_bytes, kind), or None if not parseable.
         """
         m = cls._INLINED_CALL_OPERAND_RE.search(rest)
         if not m:
             return None
-        dtype_str, dims_str, index_str = m.group(1), m.group(2), m.group(3)
+        dtype_str, dims_str, index_str, kind = m.group(1), m.group(2), m.group(3), m.group(4)
         index = int(index_str)
         elem_bytes = cls._DTYPE_BYTES.get(dtype_str, 4)
         if not dims_str.strip():
@@ -396,7 +423,7 @@ class BundleParser:
             for d in dims:
                 elem_count *= d
         operand_size = elem_count * elem_bytes
-        return (dtype_str, dims, index, operand_size)
+        return (dtype_str, dims, index, operand_size, kind)
 
     @classmethod
     def _inlined_call_operand_base_address(cls, rest: str) -> int | None:
@@ -404,7 +431,7 @@ class BundleParser:
         info = cls._inlined_call_operand_info(rest)
         if info is None:
             return None
-        _dtype, _dims, index, size = info
+        _dtype, _dims, index, size, _kind = info
         return index * size
 
     @staticmethod
@@ -443,9 +470,12 @@ class BundleParser:
         vmem_match = self._VMEM_ALLOC_RE.search(seg)
         if vmem_match:
             alloc_id = vmem_match.group(1)
-            offset = vmem_match.group(2)
+            offset_sign = vmem_match.group(2)
+            offset = vmem_match.group(3)
             if offset:
                 offset_int = int(offset, 16) if offset.startswith("0x") else int(offset)
+                if offset_sign == "-":
+                    offset_int = -offset_int
                 values.append(f"{alloc_id}+{offset_int}")
             else:
                 values.append(alloc_id)
@@ -455,11 +485,16 @@ class BundleParser:
                 imm_str = smask_match.group(1)
                 imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
                 values.append(str(imm_val))
-            sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
-            if sstride_match:
-                imm_str = sstride_match.group(1)
-                imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
-                values.append(f"ss={imm_val}")
+            if (
+                "vst_source" not in seg
+                and "/*vst_source=*/" not in seg
+                and "/*vm=*/" not in seg
+            ):
+                sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
+                if sstride_match:
+                    imm_str = sstride_match.group(1)
+                    imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
+                    values.append(f"ss={imm_val}")
 
         # vld/vst: vmem:[%sX_sY] or vmem:[%s165_s1 + $0x78] (register-based address)
         if not values and "vmem:" in seg:
@@ -479,20 +514,28 @@ class BundleParser:
                     imm_str = smask_match.group(1)
                     imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
                     values.append(str(imm_val))
-                sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
-                if sstride_match:
-                    imm_str = sstride_match.group(1)
-                    imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
-                    values.append(f"ss={imm_val}")
+                if (
+                    "vst_source" not in seg
+                    and "/*vst_source=*/" not in seg
+                    and "/*vm=*/" not in seg
+                ):
+                    sstride_match = self._VMEM_SSTRIDE_IMM_RE.search(seg)
+                    if sstride_match:
+                        imm_str = sstride_match.group(1)
+                        imm_val = int(imm_str, 16) if imm_str.startswith("0x") else int(imm_str)
+                        values.append(f"ss={imm_val}")
 
         # sld/sst: [smem:[#allocationN(_spill)] ...]
         if not values and "smem:" in seg:
             smem_match = self._SMEM_ALLOC_RE.search(seg)
             if smem_match:
                 alloc_id = smem_match.group(1)
-                offset = smem_match.group(2)
+                offset_sign = smem_match.group(2)
+                offset = smem_match.group(3)
                 if offset:
                     offset_int = int(offset, 16) if offset.startswith("0x") else int(offset)
+                    if offset_sign == "-":
+                        offset_int = -offset_int
                     values.append(f"{alloc_id}+{offset_int}")
                 else:
                     values.append(alloc_id)
@@ -544,13 +587,16 @@ class BundleParser:
             return alloc_match.group(1)
         # [#allocationN + $0xM] or [#allocationN + $M]
         alloc_offset_match = re.search(
-            r"\[(#allocation\d+(?:_[A-Za-z0-9]+)?)\s*\+\s*\$?(?:0x([0-9a-fA-F]+)|(\d+))\]",
+            r"\[(#allocation\d+(?:_[A-Za-z0-9]+)?)\s*([+-])\s*\$?(?:0x([0-9a-fA-F]+)|(\d+))\]",
             seg,
         )
         if alloc_offset_match:
             alloc_id = alloc_offset_match.group(1)
-            hex_off, dec_off = alloc_offset_match.group(2), alloc_offset_match.group(3)
+            sign = alloc_offset_match.group(2)
+            hex_off, dec_off = alloc_offset_match.group(3), alloc_offset_match.group(4)
             offset_int = int(hex_off, 16) if hex_off else int(dec_off)
+            if sign == "-":
+                offset_int = -offset_int
             return f"{alloc_id}+{offset_int}"
         if re.match(r"^\$0x[0-9a-fA-F]+$", seg) or seg in ("$0",):
             return seg
@@ -579,22 +625,48 @@ class BundleParser:
             alloc_id = normalize_alloc_id(a)
             if alloc_id in symbol_table:
                 result[key] = str(symbol_table[alloc_id].base_address)
-            elif re.match(r"^#allocation\d+(?:_[A-Za-z0-9]+)?\+\d+$", a):
+            elif re.match(r"^#allocation\d+(?:_[A-Za-z0-9]+)?\+-?\d+$", a):
                 alloc_id, offset_str = a.rsplit("+", 1)
                 alloc_id = normalize_alloc_id(alloc_id)
                 base = symbol_table[alloc_id].base_address if alloc_id in symbol_table else 0
-                # LLO allocation offsets are in 512-byte address units.
-                result[key] = str(base + (int(offset_str) << 9))
+                offset = int(offset_str)
+                scaled = base + (offset << 9)  # common LLO address-unit encoding
+                unscaled = base + offset
+                if offset < 0:
+                    result[key] = str(unscaled)
+                    continue
+                if alloc_id in symbol_table:
+                    alloc = symbol_table[alloc_id]
+                    lo = alloc.base_address
+                    hi = alloc.base_address + alloc.size
+                    scaled_in_bounds = lo <= scaled < hi
+                    unscaled_in_bounds = lo <= unscaled < hi
+                    if unscaled_in_bounds and not scaled_in_bounds:
+                        result[key] = str(unscaled)
+                    elif scaled_in_bounds and not unscaled_in_bounds:
+                        result[key] = str(scaled)
+                    else:
+                        result[key] = str(scaled)
+                else:
+                    result[key] = str(scaled)
             else:
                 result[key] = a
         return result
 
     def _parse_one_instruction(self, instr_str: str) -> Instruction | None:
         """Parse a single instruction '%dest = opcode args...' into dest_reg, opcode, args."""
+        raw_instr = instr_str
         instr_str = instr_str.strip().lstrip("> {").strip().removesuffix(" }").strip()
         instr_str = instr_str.rstrip()
         if not instr_str:
             return None
+        comments = re.findall(r"/\*(.*?)\*/", raw_instr)
+        inlined_call_callee = ""
+        for comment in comments:
+            m = re.search(r"%([A-Za-z0-9_.-]+)\s*=", comment)
+            if m:
+                inlined_call_callee = m.group(1)
+                break
         if instr_str.endswith("*/"):
             last_close = instr_str.rfind("*/")
             last_open = instr_str.rfind("/*", 0, last_close)
@@ -615,11 +687,16 @@ class BundleParser:
         if opcode.startswith("inlined_call_operand."):
             info = self._inlined_call_operand_info(rest)
             if info is not None:
-                _dtype, _dims, index, _size = info
+                dtype, dims, index, _size, kind = info
+                args = self._build_operand_dict(opcode, [f"#operand{index}"])
+                args["operand_index"] = index
+                args["operand_kind"] = kind
+                args["operand_dtype"] = dtype
+                args["operand_dims"] = dims
                 return Instruction(
                     dest_reg=dest_reg,
                     opcode=opcode,
-                    args=self._build_operand_dict(opcode, [f"#operand{index}"]),
+                    args=args,
                 )
             # fall through to generic parsing if shape/index not found
 
@@ -639,6 +716,11 @@ class BundleParser:
         args: list[str] = []
         for seg in arg_segments:
             args.extend(self._parse_arg_values(seg))
+        if opcode == "inlined_call":
+            call_args = {f"rs{i + 1}": value for i, value in enumerate(args)}
+            if inlined_call_callee:
+                call_args["callee"] = inlined_call_callee
+            return Instruction(dest_reg=dest_reg, opcode=opcode, args=call_args)
         return Instruction(dest_reg=dest_reg, opcode=opcode, args=self._build_operand_dict(opcode, args))
 
     # --- Bundle parsing ---
@@ -835,7 +917,7 @@ class BundleParser:
             info = self._inlined_call_operand_info(rest)
             if info is None:
                 continue
-            dtype_str, dims, index, size = info
+            dtype_str, dims, index, size, _kind = info
             if "inlined_call_operand.hbm" in part:
                 space = "hbm"
             elif "inlined_call_operand.vmem" in part:
@@ -874,16 +956,18 @@ class BundleParser:
 
     def parse_program(
         self, partial_path: Path
-    ) -> tuple[dict[str, Allocation], dict[int, list[Instruction]]]:
+    ) -> tuple[dict[str, Allocation], dict[int, InstructionBundle]]:
         """Parse program from partial path; resolves #allocation refs to base addresses."""
         # Reset EUP bookkeeping for each new program.
         self._eup_value_producers.clear()
         self._ssa_token_to_vreg.clear()
         symbol_table = self._parse_symbol_table(partial_path)
 
-        bundles: dict[int, list[Instruction]] = {}
+        bundles: dict[int, InstructionBundle] = {}
         for addr, payload in self._iter_bundle_payloads(partial_path):
             self._collect_operands_into_symbol_table(payload, symbol_table)
-            bundles[addr] = self.parse_bundle(payload, symbol_table)
-
-        return symbol_table, bundles
+            bundles[addr] = InstructionBundle(
+                address=addr,
+                instructions=self.parse_bundle(payload, symbol_table),
+            )
+        return symbol_table, dict(sorted(bundles.items(), key=lambda item: item[0]))
