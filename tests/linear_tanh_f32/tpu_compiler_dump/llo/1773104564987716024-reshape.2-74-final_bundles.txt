@@ -1,0 +1,102 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %2 = vsyncpa [#allocation1], 0  ;;  %s303_s8 = smov [#allocation0] /* materialized constant */  ;;  %s588_s0 = inlined_call_operand.hbm [shape: f32[1024], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s589_s1 = inlined_call_operand.vmem [shape: f32[128,8], index: 1, kind: output, shape index: {}] /* operand 1 */ } /* entry bundle: %reshape.2 = reshape(%Arg_0.1) */
+   0x1   :  { %s6_s0 = sshll.u32 %s588_s0, 4  ;;  %s8_s9 = sshll.u32 %s303_s8, 4  ;;  %s7_s0 = int_to_ptr.hbm [resolvable:$true] %s6_s0  ;;  %s9_s9 = int_to_ptr.vmem [resolvable:$true] %s8_s9 }
+   0x2   :  { %11 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s7_s0, /*size_in_granules=*/128, /*vmem=*/%s9_s9, /*dst_syncflagno=*/[#allocation1] /* 
+base_bounds: (8)
+dynamic_base_bounds: (8)
+window_bounds: (8)
+iteration_bounds: (1)
+strides: (8)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+   0x3   :  { %301 = dma.done.wait [#allocation1], 128 /* pipeline-emitter-dma-wait */ }
+   0x4   :  { %302 = vsyncadd [#allocation1], 4294967168  ;;  %v44_v0 = vld [vmem:[#allocation0] sm:$0xff] /* (strided) load 0000:18, stride: 1, sublanes: 8 */  ;;  %s304_s10 = smov 104 /* materialized constant */  ;;  %s305_s11 = smov 120 /* materialized constant */  ;;  %vm15_vm0 = vcmask 64512 /* [0:7,0:7] */ }
+   0x5   :  { %45 = vrot.lane.b32.xlu1 %v44_v0, %s304_s10  ;;  %21 = vrot.lane.b32.xlu0 %v44_v0, %s305_s11  ;;  %s306_s12 = smov 88 /* materialized constant */  ;;  %16 = vst.msk [vmem:[%s589_s1] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v44_v0 /* (strided) store 0000:00, stride: 16, sublanes: 2 */  ;;  %s307_s21 = smov 96 /* materialized constant */ }
+   0x6   :  { %69 = vrot.lane.b32.xlu2 %v44_v0, %s306_s12  ;;  %17 = vst.msk [vmem:[%s589_s1] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v44_v0 /* (strided) store 0020:00, stride: 16, sublanes: 2 */  ;;  %s308_s22 = smov 112 /* materialized constant */  ;;  %s309_s23 = smov 80 /* materialized constant */ }
+   0x7   :  { %18 = vst.msk [vmem:[%s589_s1] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v44_v0 /* (strided) store 0040:00, stride: 16, sublanes: 2 */  ;;  %s310_s24 = smov 64 /* materialized constant */  ;;  %s311_s25 = smov 72 /* materialized constant */ }
+   0x8   :  { %19 = vst.msk [vmem:[%s589_s1] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v44_v0 /* (strided) store 0060:00, stride: 16, sublanes: 2 */  ;;  %s312_s26 = smov 56 /* materialized constant */  ;;  %s313_s27 = smov 40 /* materialized constant */ }
+   0x9   :  { %s314_s28 = smov 48 /* materialized constant */  ;;  %s315_s29 = smov 32 /* materialized constant */ }
+   0xa   :  { %s316_s30 = smov 16 /* materialized constant */  ;;  %s317_s2 = smov 24 /* materialized constant */ }
+   0xb   :  { %s318_s3 = smov 8 /* materialized constant */ }
+   0xc   :  { %57 = vrot.lane.b32.xlu1 %v44_v0, %s307_s21  ;;  %33 = vrot.lane.b32.xlu0 %v44_v0, %s308_s22 }
+   0xd   :  { %81 = vrot.lane.b32.xlu2 %v44_v0, %s309_s23 }
+   0xe   :  { %105 = vrot.lane.b32.xlu1 %v44_v0, %s310_s24  ;;  %93 = vrot.lane.b32.xlu0 %v44_v0, %s311_s25 }
+   0xf   :  { %117 = vrot.lane.b32.xlu2 %v44_v0, %s312_s26 }
+  0x10   :  { %141 = vrot.lane.b32.xlu1 %v44_v0, %s313_s27  ;;  %129 = vrot.lane.b32.xlu0 %v44_v0, %s314_s28 }
+  0x11   :  { %153 = vrot.lane.b32.xlu2 %v44_v0, %s315_s29 }
+  0x12   :  { %177 = vrot.lane.b32.xlu1 %v44_v0, %s316_s30  ;;  %165 = vrot.lane.b32.xlu0 %v44_v0, %s317_s2 }
+  0x13   :  { %189 = vrot.lane.b32.xlu2 %v44_v0, %s318_s3 }
+  0x14   :  { %v70_v1 = vpop.permute.xlu2 %69 /* aligned_sublanes <<< 40 */ }
+  0x15   :  { %217 = vst.msk [vmem:[%s589_s1 + $0x5] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v70_v1 /* (strided) store 0005:00, stride: 16, sublanes: 2 */ }
+  0x16   :  { %218 = vst.msk [vmem:[%s589_s1 + $0x5] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v70_v1 /* (strided) store 0025:00, stride: 16, sublanes: 2 */ }
+  0x17   :  { %219 = vst.msk [vmem:[%s589_s1 + $0x5] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v70_v1 /* (strided) store 0045:00, stride: 16, sublanes: 2 */ }
+  0x18   :  { %220 = vst.msk [vmem:[%s589_s1 + $0x5] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v70_v1 /* (strided) store 0065:00, stride: 16, sublanes: 2 */ }
+  0x19   :  { %v82_v2 = vpop.permute.xlu2 %81 /* aligned_sublanes <<< 48 */ }
+  0x1a   :  { %221 = vst.msk [vmem:[%s589_s1 + $0x6] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v82_v2 /* (strided) store 0006:00, stride: 16, sublanes: 2 */ }
+  0x1b   :  { %222 = vst.msk [vmem:[%s589_s1 + $0x6] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v82_v2 /* (strided) store 0026:00, stride: 16, sublanes: 2 */ }
+  0x1c   :  { %223 = vst.msk [vmem:[%s589_s1 + $0x6] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v82_v2 /* (strided) store 0046:00, stride: 16, sublanes: 2 */ }
+  0x1d   :  { %224 = vst.msk [vmem:[%s589_s1 + $0x6] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v82_v2 /* (strided) store 0066:00, stride: 16, sublanes: 2 */ }
+  0x1e   :  { %v118_v3 = vpop.permute.xlu2 %117 /* aligned_sublanes <<< 72 */ }
+  0x1f   :  { %233 = vst.msk [vmem:[%s589_s1 + $0x9] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v118_v3 /* (strided) store 0009:00, stride: 16, sublanes: 2 */ }
+  0x20   :  { %234 = vst.msk [vmem:[%s589_s1 + $0x9] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v118_v3 /* (strided) store 0029:00, stride: 16, sublanes: 2 */ }
+  0x21   :  { %235 = vst.msk [vmem:[%s589_s1 + $0x9] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v118_v3 /* (strided) store 0049:00, stride: 16, sublanes: 2 */ }
+  0x22   :  { %236 = vst.msk [vmem:[%s589_s1 + $0x9] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v118_v3 /* (strided) store 0069:00, stride: 16, sublanes: 2 */ }
+  0x23   :  { %v46_v4 = vpop.permute.xlu1 %45 /* aligned_sublanes <<< 24 */  ;;  %v22_v5 = vpop.permute.xlu0 %21 /* aligned_sublanes <<< 8 */ }
+  0x24   :  { %209 = vst.msk [vmem:[%s589_s1 + $0x3] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v46_v4 /* (strided) store 0003:00, stride: 16, sublanes: 2 */  ;;  %v154_v6 = vpop.permute.xlu2 %153 /* aligned_sublanes <<< 96 */ }
+  0x25   :  { %210 = vst.msk [vmem:[%s589_s1 + $0x3] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v46_v4 /* (strided) store 0023:00, stride: 16, sublanes: 2 */ }
+  0x26   :  { %211 = vst.msk [vmem:[%s589_s1 + $0x3] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v46_v4 /* (strided) store 0043:00, stride: 16, sublanes: 2 */ }
+  0x27   :  { %212 = vst.msk [vmem:[%s589_s1 + $0x3] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v46_v4 /* (strided) store 0063:00, stride: 16, sublanes: 2 */ }
+  0x28   :  { %201 = vst.msk [vmem:[%s589_s1 + $0x1] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v22_v5 /* (strided) store 0001:00, stride: 16, sublanes: 2 */ }
+  0x29   :  { %202 = vst.msk [vmem:[%s589_s1 + $0x1] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v22_v5 /* (strided) store 0021:00, stride: 16, sublanes: 2 */ }
+  0x2a   :  { %203 = vst.msk [vmem:[%s589_s1 + $0x1] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v22_v5 /* (strided) store 0041:00, stride: 16, sublanes: 2 */ }
+  0x2b   :  { %204 = vst.msk [vmem:[%s589_s1 + $0x1] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v22_v5 /* (strided) store 0061:00, stride: 16, sublanes: 2 */  ;;  %v58_v7 = vpop.permute.xlu1 %57 /* aligned_sublanes <<< 32 */  ;;  %v34_v8 = vpop.permute.xlu0 %33 /* aligned_sublanes <<< 16 */ }
+  0x2c   :  { %213 = vst.msk [vmem:[%s589_s1 + $0x4] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v58_v7 /* (strided) store 0004:00, stride: 16, sublanes: 2 */  ;;  %v190_v9 = vpop.permute.xlu2 %189 /* aligned_sublanes <<< 120 */ }
+  0x2d   :  { %214 = vst.msk [vmem:[%s589_s1 + $0x4] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v58_v7 /* (strided) store 0024:00, stride: 16, sublanes: 2 */ }
+  0x2e   :  { %215 = vst.msk [vmem:[%s589_s1 + $0x4] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v58_v7 /* (strided) store 0044:00, stride: 16, sublanes: 2 */ }
+  0x2f   :  { %216 = vst.msk [vmem:[%s589_s1 + $0x4] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v58_v7 /* (strided) store 0064:00, stride: 16, sublanes: 2 */ }
+  0x30   :  { %205 = vst.msk [vmem:[%s589_s1 + $0x2] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v34_v8 /* (strided) store 0002:00, stride: 16, sublanes: 2 */ }
+  0x31   :  { %206 = vst.msk [vmem:[%s589_s1 + $0x2] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v34_v8 /* (strided) store 0022:00, stride: 16, sublanes: 2 */ }
+  0x32   :  { %207 = vst.msk [vmem:[%s589_s1 + $0x2] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v34_v8 /* (strided) store 0042:00, stride: 16, sublanes: 2 */ }
+  0x33   :  { %208 = vst.msk [vmem:[%s589_s1 + $0x2] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v34_v8 /* (strided) store 0062:00, stride: 16, sublanes: 2 */  ;;  %v106_v10 = vpop.permute.xlu1 %105 /* aligned_sublanes <<< 64 */  ;;  %v94_v11 = vpop.permute.xlu0 %93 /* aligned_sublanes <<< 56 */ }
+  0x34   :  { %229 = vst.msk [vmem:[%s589_s1 + $0x8] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v106_v10 /* (strided) store 0008:00, stride: 16, sublanes: 2 */ }
+  0x35   :  { %230 = vst.msk [vmem:[%s589_s1 + $0x8] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v106_v10 /* (strided) store 0028:00, stride: 16, sublanes: 2 */ }
+  0x36   :  { %231 = vst.msk [vmem:[%s589_s1 + $0x8] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v106_v10 /* (strided) store 0048:00, stride: 16, sublanes: 2 */ }
+  0x37   :  { %232 = vst.msk [vmem:[%s589_s1 + $0x8] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v106_v10 /* (strided) store 0068:00, stride: 16, sublanes: 2 */ }
+  0x38   :  { %225 = vst.msk [vmem:[%s589_s1 + $0x7] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v94_v11 /* (strided) store 0007:00, stride: 16, sublanes: 2 */ }
+  0x39   :  { %226 = vst.msk [vmem:[%s589_s1 + $0x7] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v94_v11 /* (strided) store 0027:00, stride: 16, sublanes: 2 */ }
+  0x3a   :  { %227 = vst.msk [vmem:[%s589_s1 + $0x7] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v94_v11 /* (strided) store 0047:00, stride: 16, sublanes: 2 */ }
+  0x3b   :  { %228 = vst.msk [vmem:[%s589_s1 + $0x7] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v94_v11 /* (strided) store 0067:00, stride: 16, sublanes: 2 */  ;;  %v142_v12 = vpop.permute.xlu1 %141 /* aligned_sublanes <<< 88 */  ;;  %v130_v13 = vpop.permute.xlu0 %129 /* aligned_sublanes <<< 80 */ }
+  0x3c   :  { %245 = vst.msk [vmem:[%s589_s1 + $0xc] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v154_v6 /* (strided) store 000c:00, stride: 16, sublanes: 2 */ }
+  0x3d   :  { %246 = vst.msk [vmem:[%s589_s1 + $0xc] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v154_v6 /* (strided) store 002c:00, stride: 16, sublanes: 2 */ }
+  0x3e   :  { %247 = vst.msk [vmem:[%s589_s1 + $0xc] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v154_v6 /* (strided) store 004c:00, stride: 16, sublanes: 2 */ }
+  0x3f   :  { %248 = vst.msk [vmem:[%s589_s1 + $0xc] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v154_v6 /* (strided) store 006c:00, stride: 16, sublanes: 2 */ }
+  0x40   :  { %241 = vst.msk [vmem:[%s589_s1 + $0xb] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v142_v12 /* (strided) store 000b:00, stride: 16, sublanes: 2 */ }
+  0x41   :  { %242 = vst.msk [vmem:[%s589_s1 + $0xb] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v142_v12 /* (strided) store 002b:00, stride: 16, sublanes: 2 */ }
+  0x42   :  { %243 = vst.msk [vmem:[%s589_s1 + $0xb] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v142_v12 /* (strided) store 004b:00, stride: 16, sublanes: 2 */ }
+  0x43   :  { %244 = vst.msk [vmem:[%s589_s1 + $0xb] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v142_v12 /* (strided) store 006b:00, stride: 16, sublanes: 2 */  ;;  %v178_v14 = vpop.permute.xlu1 %177 /* aligned_sublanes <<< 112 */  ;;  %v166_v15 = vpop.permute.xlu0 %165 /* aligned_sublanes <<< 104 */ }
+  0x44   :  { %237 = vst.msk [vmem:[%s589_s1 + $0xa] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v130_v13 /* (strided) store 000a:00, stride: 16, sublanes: 2 */ }
+  0x45   :  { %238 = vst.msk [vmem:[%s589_s1 + $0xa] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v130_v13 /* (strided) store 002a:00, stride: 16, sublanes: 2 */ }
+  0x46   :  { %239 = vst.msk [vmem:[%s589_s1 + $0xa] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v130_v13 /* (strided) store 004a:00, stride: 16, sublanes: 2 */ }
+  0x47   :  { %240 = vst.msk [vmem:[%s589_s1 + $0xa] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v130_v13 /* (strided) store 006a:00, stride: 16, sublanes: 2 */ }
+  0x48   :  { %257 = vst.msk [vmem:[%s589_s1 + $0xf] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v190_v9 /* (strided) store 000f:00, stride: 16, sublanes: 2 */ }
+  0x49   :  { %258 = vst.msk [vmem:[%s589_s1 + $0xf] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v190_v9 /* (strided) store 002f:00, stride: 16, sublanes: 2 */ }
+  0x4a   :  { %259 = vst.msk [vmem:[%s589_s1 + $0xf] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v190_v9 /* (strided) store 004f:00, stride: 16, sublanes: 2 */ }
+  0x4b   :  { %260 = vst.msk [vmem:[%s589_s1 + $0xf] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v190_v9 /* (strided) store 006f:00, stride: 16, sublanes: 2 */ }
+  0x4c   :  { %253 = vst.msk [vmem:[%s589_s1 + $0xe] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v178_v14 /* (strided) store 000e:00, stride: 16, sublanes: 2 */ }
+  0x4d   :  { %254 = vst.msk [vmem:[%s589_s1 + $0xe] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v178_v14 /* (strided) store 002e:00, stride: 16, sublanes: 2 */ }
+  0x4e   :  { %255 = vst.msk [vmem:[%s589_s1 + $0xe] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v178_v14 /* (strided) store 004e:00, stride: 16, sublanes: 2 */ }
+  0x4f   :  { %256 = vst.msk [vmem:[%s589_s1 + $0xe] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v178_v14 /* (strided) store 006e:00, stride: 16, sublanes: 2 */ }
+  0x50   :  { %249 = vst.msk [vmem:[%s589_s1 + $0xd] ss:$16 sm:$0x3] /*vm=*/%vm15_vm0, /*vst_source=*/%v166_v15 /* (strided) store 000d:00, stride: 16, sublanes: 2 */ }
+  0x51   :  { %250 = vst.msk [vmem:[%s589_s1 + $0xd] ss:$16 sm:$0xc] /*vm=*/%vm15_vm0, /*vst_source=*/%v166_v15 /* (strided) store 002d:00, stride: 16, sublanes: 2 */ }
+  0x52   :  { %251 = vst.msk [vmem:[%s589_s1 + $0xd] ss:$16 sm:$0x30] /*vm=*/%vm15_vm0, /*vst_source=*/%v166_v15 /* (strided) store 004d:00, stride: 16, sublanes: 2 */ }
+  0x53   :  { %252 = vst.msk [vmem:[%s589_s1 + $0xd] ss:$16 sm:$0xc0] /*vm=*/%vm15_vm0, /*vst_source=*/%v166_v15 /* (strided) store 006d:00, stride: 16, sublanes: 2 */ }
+  0x54   :  { %200 = vsyncpa [#allocation1], 1 } /* exit bundle: %reshape.2 = reshape(%Arg_0.1) */

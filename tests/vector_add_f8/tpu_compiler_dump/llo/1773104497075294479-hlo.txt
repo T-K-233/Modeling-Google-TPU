@@ -1,0 +1,19 @@
+HloModule jit_dynamic_slice, is_scheduled=true, entry_computation_layout={(f8e4m3fn[8,512]{1,0:T(8,128)(4,1)}, s32[]{:T(128)}, s32[]{:T(128)})->f8e4m3fn[8,10]{1,0:T(8,128)(4,1)}}, allow_spmd_sharding_propagation_to_parameters={true,true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+%fused_computation (param_0: f8e4m3fn[8,512], param_1.1: s32[]) -> f8e4m3fn[8,10] {
+  %param_0 = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)S(1)} parameter(0)
+  %constant.1 = s32[]{:T(128)} constant(0), metadata={op_name="args[1]"}
+  %param_1.1 = s32[]{:T(128)S(6)} parameter(1)
+  ROOT %dynamic-slice.1 = f8e4m3fn[8,10]{1,0:T(8,128)(4,1)} dynamic-slice(%param_0, %constant.1, %param_1.1), dynamic_slice_sizes={8,10}, metadata={op_name="jit(dynamic_slice)/jit(main)/dynamic_slice" source_file="/tmp/ipython-input-113313869.py" source_line=12}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"indices_config":{"index_known_bits":[{"zeroes":"4294967295","ones":"0","bitwidth":"32"},{"zeroes":"0","ones":"0","bitwidth":"32"}],"is_index_aligned":[true,false]},"used_scoped_memory_configs":[]}
+}
+
+ENTRY %main.5 (Arg_0.1: f8e4m3fn[8,512], Arg_1.2: s32[], Arg_2.3: s32[]) -> f8e4m3fn[8,10] {
+  %Arg_0.1 = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)} parameter(0), metadata={op_name="args[0]"}
+  %copy-start = (f8e4m3fn[8,512]{1,0:T(8,128)(4,1)S(1)}, f8e4m3fn[8,512]{1,0:T(8,128)(4,1)}, u32[]{:S(2)}) copy-start(%Arg_0.1), cross_program_prefetch_index=0
+  %Arg_2.3 = s32[]{:T(128)} parameter(2), metadata={op_name="args[2]"}
+  %Arg_1.2 = s32[]{:T(128)} parameter(1), metadata={op_name="args[1]"}
+  %copy = s32[]{:T(128)S(6)} copy(%Arg_2.3)
+  %copy-done = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)S(1)} copy-done(%copy-start)
+  ROOT %constant_dynamic-slice_fusion = f8e4m3fn[8,10]{1,0:T(8,128)(4,1)} fusion(%copy-done, %copy), kind=kLoop, calls=%fused_computation, metadata={op_name="jit(dynamic_slice)/jit(main)/dynamic_slice" source_file="/tmp/ipython-input-113313869.py" source_line=12}
+}
+

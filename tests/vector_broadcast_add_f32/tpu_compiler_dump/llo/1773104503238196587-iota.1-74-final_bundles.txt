@@ -1,0 +1,28 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %1 = vsyncpa [#allocation2], 0  ;;  %v2_v0 = vlaneseq  ;;  %s51_s3 = smov [#allocation0] /* materialized constant */  ;;  %s60_s0 = inlined_call_operand.hbm [shape: f32[1024], index: 0, kind: output, shape index: {}] /* operand 0 */ } /* entry bundle: %iota.1 = iota() */
+   0x1   :  { %s15_s4 = sshll.u32 %s51_s3, 4  ;;  %s17_s0 = sshll.u32 %s60_s0, 4  ;;  %s16_s4 = int_to_ptr.vmem [resolvable:$true] %s15_s4  ;;  %s18_s0 = int_to_ptr.hbm [resolvable:$true] %s17_s0 }
+   0x2   :  { %v5_v1 = vshrl.u32 %v2_v0, 16  ;;  %v6_v2 = vand.u32 65535, %v2_v0 }
+   0x3   :  { %v7_v3 = vcvt.s32.f32 %v5_v1  ;;  %v9_v4 = vcvt.s32.f32 %v6_v2 }
+   0x4   :  { %v8_v5 = vmul.f32 65536.0, %v7_v3 }
+   0x5   :  { %v10_v6 = vadd.f32 %v9_v4, %v8_v5 }
+   0x6   :  { %11 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v10_v6 }
+   0x7   :  { %20 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s16_s4, /*size_in_granules=*/128, /*hbm=*/%s18_s0, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (1)
+dynamic_base_bounds: (1)
+window_bounds: (1)
+iteration_bounds: (1)
+strides: (1)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 4096 */ }
+   0x8   :  { %49 = dma.done.wait [#allocation2], 128 /* pipeline-emitter-dma-wait */ }
+   0x9   :  { %50 = vsyncadd [#allocation2], 4294967168 }
+   0xa   :  { %23 = vsyncpa [#allocation2], 1 } /* exit bundle: %iota.1 = iota() */

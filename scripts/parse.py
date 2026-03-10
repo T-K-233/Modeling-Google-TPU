@@ -13,6 +13,19 @@ from tpu.instruction import InstructionBundle
 _KERNEL_FINAL_RE = re.compile(r"^(?P<id>\d+)-(?P<kernel>.+)-(?P<stage>\d+)-final_bundles\.txt$")
 # Matches TLP bundle files: {id}-79-final_bundles.txt
 _TLP_FINAL_RE = re.compile(r"^(?P<id>\d+)-79-final_bundles\.txt$")
+_BUNDLE_SLOT_FIELDS = (
+    "mxu0", "mxu1", "mxu2", "mxu3",
+    "xlu0", "xlu1", "xlu2",
+    "valu0", "valu1", "valu2", "valu3",
+    "eup",
+    "load0", "load1", "load2",
+    "store0",
+    "salu0", "salu1",
+)
+
+
+def _iter_valid_slots(bundle: InstructionBundle):
+    return bundle.iter_valid_slots()
 
 
 def resolve_llo_dir(path: Path) -> Path:
@@ -158,10 +171,12 @@ def main() -> None:
             for alloc_id, alloc in symbol_table.items():
                 print(f"  {alloc_id}: space={alloc.space} size=0x{alloc.size:x} base_address=0x{alloc.base_address:x}")
             print("\n--- Parsed bundles ---")
-            for addr in sorted(bundles.keys()):
+            addrs = sorted(bundles.keys())
+            for i, addr in enumerate(addrs):
+                if i > 0:
+                    print(InstructionBundle.table_divider())
                 bundle = bundles[addr]
-                print(f"\n0x{addr:x} ({len(bundle.instructions)} instructions)")
-                print(bundle)
+                print(bundle.table_repr(include_header=(i == 0)))
         return
 
     if args.stem:
@@ -186,10 +201,12 @@ def main() -> None:
         print(f"  {alloc_id}: space={alloc.space} size=0x{alloc.size:x} base_address=0x{alloc.base_address:x}")
 
     print("\n=== Parsed bundles ===")
-    for addr in sorted(bundles.keys()):
+    addrs = sorted(bundles.keys())
+    for i, addr in enumerate(addrs):
+        if i > 0:
+            print(InstructionBundle.table_divider())
         bundle: InstructionBundle = bundles[addr]
-        print(f"\n0x{addr:x} ({len(bundle.instructions)} instructions)")
-        print(bundle)
+        print(bundle.table_repr(include_header=(i == 0)))
 
 
 if __name__ == "__main__":

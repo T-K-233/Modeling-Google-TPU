@@ -1,0 +1,7 @@
+HloModule jit_reshape, is_scheduled=true, entry_computation_layout={(f32[64]{0:T(128)})->f32[8,8]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}
+
+ENTRY %main.3 (Arg_0.1: f32[64]) -> f32[8,8] {
+  %Arg_0.1 = f32[64]{0:T(128)} parameter(0), metadata={op_name="args[0]"}
+  ROOT %reshape.2 = f32[8,8]{1,0:T(8,128)} reshape(%Arg_0.1), metadata={op_name="jit(reshape)/jit(main)/reshape" source_file="/tmp/ipython-input-359292378.py" source_line=7}
+}
+

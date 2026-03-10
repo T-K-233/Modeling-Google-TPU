@@ -1,0 +1,8 @@
+HloModule jit_vector_add_f8, is_scheduled=true, entry_computation_layout={(f8e4m3fn[8,512]{1,0:T(8,128)(4,1)}, f8e4m3fn[8,512]{1,0:T(8,128)(4,1)})->f8e4m3fn[8,512]{1,0:T(8,128)(4,1)}}, allow_spmd_sharding_propagation_to_parameters={true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+ENTRY %main.4 (Arg_0.1: f8e4m3fn[8,512], Arg_1.2: f8e4m3fn[8,512]) -> f8e4m3fn[8,512] {
+  %Arg_1.2 = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)} parameter(1), metadata={op_name="y"}
+  %Arg_0.1 = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)} parameter(0), metadata={op_name="x"}
+  ROOT %add.3 = f8e4m3fn[8,512]{1,0:T(8,128)(4,1)} add(%Arg_0.1, %Arg_1.2), metadata={op_name="jit(vector_add_f8)/jit(main)/vector_add_f8/add" source_file="/tmp/ipython-input-113313869.py" source_line=5}
+}
+

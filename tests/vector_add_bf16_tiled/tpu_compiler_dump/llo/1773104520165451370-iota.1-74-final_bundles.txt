@@ -1,0 +1,56 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %1 = vsyncpa [#allocation2], 0  ;;  %v2_v0 = vlaneseq  ;;  %s216_s3 = smov [#allocation0] /* materialized constant */  ;;  %s242_s0 = inlined_call_operand.hbm [shape: f32[16384], index: 0, kind: output, shape index: {}] /* operand 0 */ } /* entry bundle: %iota.1 = iota() */
+   0x1   :  { %s180_s4 = sshll.u32 %s216_s3, 4  ;;  %s182_s0 = sshll.u32 %s242_s0, 4  ;;  %s181_s4 = int_to_ptr.vmem [resolvable:$true] %s180_s4  ;;  %s183_s0 = int_to_ptr.hbm [resolvable:$true] %s182_s0 }
+   0x2   :  { %v5_v1 = vshrl.u32 %v2_v0, 16  ;;  %v6_v2 = vand.u32 65535, %v2_v0  ;;  %v14_v3 = vadd.s32 1024, %v2_v0  ;;  %v25_v4 = vadd.s32 2048, %v2_v0 }
+   0x3   :  { %v36_v5 = vadd.s32 3072, %v2_v0  ;;  %v47_v6 = vadd.s32 4096, %v2_v0  ;;  %v58_v7 = vadd.s32 5120, %v2_v0  ;;  %v69_v8 = vadd.s32 6144, %v2_v0 }
+   0x4   :  { %v7_v9 = vcvt.s32.f32 %v5_v1  ;;  %v9_v10 = vcvt.s32.f32 %v6_v2  ;;  %v15_v11 = vshrl.u32 %v14_v3, 16  ;;  %v16_v12 = vand.u32 65535, %v14_v3 }
+   0x5   :  { %v26_v13 = vshrl.u32 %v25_v4, 16  ;;  %v27_v14 = vand.u32 65535, %v25_v4  ;;  %v37_v15 = vshrl.u32 %v36_v5, 16  ;;  %v38_v16 = vand.u32 65535, %v36_v5 }
+   0x6   :  { %v8_v17 = vmul.f32 65536.0, %v7_v9  ;;  %v17_v18 = vcvt.s32.f32 %v15_v11  ;;  %v19_v19 = vcvt.s32.f32 %v16_v12  ;;  %v48_v20 = vshrl.u32 %v47_v6, 16 }
+   0x7   :  { %v28_v21 = vcvt.s32.f32 %v26_v13  ;;  %v30_v22 = vcvt.s32.f32 %v27_v14  ;;  %v39_v23 = vcvt.s32.f32 %v37_v15  ;;  %v41_v24 = vcvt.s32.f32 %v38_v16 }
+   0x8   :  { %v10_v25 = vadd.f32 %v9_v10, %v8_v17  ;;  %v18_v26 = vmul.f32 65536.0, %v17_v18  ;;  %v49_v27 = vand.u32 65535, %v47_v6  ;;  %v50_v28 = vcvt.s32.f32 %v48_v20 }
+   0x9   :  { %v29_v29 = vmul.f32 65536.0, %v28_v21  ;;  %v40_v30 = vmul.f32 65536.0, %v39_v23  ;;  %v59_v31 = vshrl.u32 %v58_v7, 16  ;;  %v60_v32 = vand.u32 65535, %v58_v7 }
+   0xa   :  { %11 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v10_v25  ;;  %v20_v33 = vadd.f32 %v19_v19, %v18_v26  ;;  %v51_v34 = vmul.f32 65536.0, %v50_v28  ;;  %v52_v35 = vcvt.s32.f32 %v49_v27  ;;  %v70_v36 = vshrl.u32 %v69_v8, 16 }
+   0xb   :  { %v31_v37 = vadd.f32 %v30_v22, %v29_v29  ;;  %v42_v38 = vadd.f32 %v41_v24, %v40_v30  ;;  %v61_v39 = vcvt.s32.f32 %v59_v31  ;;  %v63_v40 = vcvt.s32.f32 %v60_v32 }
+   0xc   :  { %22 = vst [vmem:[#allocation0 + $0x8] sm:$0xff] /*vst_source=*/%v20_v33  ;;  %v53_v41 = vadd.f32 %v52_v35, %v51_v34  ;;  %v71_v42 = vand.u32 65535, %v69_v8  ;;  %v72_v43 = vcvt.s32.f32 %v70_v36  ;;  %v80_v44 = vadd.s32 7168, %v2_v0 }
+   0xd   :  { %33 = vst [vmem:[#allocation0 + $0x10] sm:$0xff] /*vst_source=*/%v31_v37  ;;  %v62_v45 = vmul.f32 65536.0, %v61_v39  ;;  %v91_v46 = vadd.s32 8192, %v2_v0  ;;  %v102_v47 = vadd.s32 9216, %v2_v0  ;;  %v113_v48 = vadd.s32 10240, %v2_v0 }
+   0xe   :  { %44 = vst [vmem:[#allocation0 + $0x18] sm:$0xff] /*vst_source=*/%v42_v38  ;;  %v73_v49 = vmul.f32 65536.0, %v72_v43  ;;  %v74_v50 = vcvt.s32.f32 %v71_v42  ;;  %v81_v51 = vshrl.u32 %v80_v44, 16  ;;  %v82_v52 = vand.u32 65535, %v80_v44 }
+   0xf   :  { %55 = vst [vmem:[#allocation0 + $0x20] sm:$0xff] /*vst_source=*/%v53_v41  ;;  %v64_v53 = vadd.f32 %v63_v40, %v62_v45  ;;  %v92_v54 = vshrl.u32 %v91_v46, 16  ;;  %v93_v55 = vand.u32 65535, %v91_v46  ;;  %v103_v56 = vshrl.u32 %v102_v47, 16 }
+  0x10   :  { %v75_v57 = vadd.f32 %v74_v50, %v73_v49  ;;  %v83_v58 = vcvt.s32.f32 %v81_v51  ;;  %v85_v59 = vcvt.s32.f32 %v82_v52  ;;  %v104_v60 = vand.u32 65535, %v102_v47 }
+  0x11   :  { %66 = vst [vmem:[#allocation0 + $0x28] sm:$0xff] /*vst_source=*/%v64_v53  ;;  %v94_v61 = vcvt.s32.f32 %v92_v54  ;;  %v96_v62 = vcvt.s32.f32 %v93_v55  ;;  %v105_v63 = vcvt.s32.f32 %v103_v56  ;;  %v114_v1 = vshrl.u32 %v113_v48, 16 }
+  0x12   :  { %77 = vst [vmem:[#allocation0 + $0x30] sm:$0xff] /*vst_source=*/%v75_v57  ;;  %v84_v2 = vmul.f32 65536.0, %v83_v58  ;;  %v107_v3 = vcvt.s32.f32 %v104_v60  ;;  %v115_v4 = vand.u32 65535, %v113_v48  ;;  %v124_v5 = vadd.s32 11264, %v2_v0 }
+  0x13   :  { %v95_v6 = vmul.f32 65536.0, %v94_v61  ;;  %v106_v7 = vmul.f32 65536.0, %v105_v63  ;;  %v116_v8 = vcvt.s32.f32 %v114_v1  ;;  %v135_v9 = vadd.s32 12288, %v2_v0 }
+  0x14   :  { %v86_v10 = vadd.f32 %v85_v59, %v84_v2  ;;  %v118_v11 = vcvt.s32.f32 %v115_v4  ;;  %v125_v12 = vshrl.u32 %v124_v5, 16  ;;  %v126_v13 = vand.u32 65535, %v124_v5 }
+  0x15   :  { %v97_v14 = vadd.f32 %v96_v62, %v95_v6  ;;  %v108_v15 = vadd.f32 %v107_v3, %v106_v7  ;;  %v117_v16 = vmul.f32 65536.0, %v116_v8  ;;  %v136_v17 = vshrl.u32 %v135_v9, 16 }
+  0x16   :  { %88 = vst [vmem:[#allocation0 + $0x38] sm:$0xff] /*vst_source=*/%v86_v10  ;;  %v127_v18 = vcvt.s32.f32 %v125_v12  ;;  %v129_v19 = vcvt.s32.f32 %v126_v13  ;;  %v137_v20 = vand.u32 65535, %v135_v9  ;;  %v146_v21 = vadd.s32 13312, %v2_v0 }
+  0x17   :  { %99 = vst [vmem:[#allocation0 + $0x40] sm:$0xff] /*vst_source=*/%v97_v14  ;;  %v119_v22 = vadd.f32 %v118_v11, %v117_v16  ;;  %v138_v23 = vcvt.s32.f32 %v136_v17  ;;  %v157_v24 = vadd.s32 14336, %v2_v0  ;;  %v168_v0 = vadd.s32 15360, %v2_v0 }
+  0x18   :  { %110 = vst [vmem:[#allocation0 + $0x48] sm:$0xff] /*vst_source=*/%v108_v15  ;;  %v128_v25 = vmul.f32 65536.0, %v127_v18  ;;  %v140_v26 = vcvt.s32.f32 %v137_v20  ;;  %v147_v27 = vshrl.u32 %v146_v21, 16  ;;  %v148_v28 = vand.u32 65535, %v146_v21 }
+  0x19   :  { %121 = vst [vmem:[#allocation0 + $0x50] sm:$0xff] /*vst_source=*/%v119_v22  ;;  %v139_v29 = vmul.f32 65536.0, %v138_v23  ;;  %v158_v30 = vshrl.u32 %v157_v24, 16  ;;  %v159_v31 = vand.u32 65535, %v157_v24  ;;  %v169_v32 = vshrl.u32 %v168_v0, 16 }
+  0x1a   :  { %v130_v33 = vadd.f32 %v129_v19, %v128_v25  ;;  %v149_v34 = vcvt.s32.f32 %v147_v27  ;;  %v151_v35 = vcvt.s32.f32 %v148_v28  ;;  %v170_v36 = vand.u32 65535, %v168_v0 }
+  0x1b   :  { %v141_v37 = vadd.f32 %v140_v26, %v139_v29  ;;  %v160_v38 = vcvt.s32.f32 %v158_v30  ;;  %v162_v39 = vcvt.s32.f32 %v159_v31  ;;  %v171_v40 = vcvt.s32.f32 %v169_v32 }
+  0x1c   :  { %132 = vst [vmem:[#allocation0 + $0x58] sm:$0xff] /*vst_source=*/%v130_v33  ;;  %v150_v41 = vmul.f32 65536.0, %v149_v34  ;;  %v173_v42 = vcvt.s32.f32 %v170_v36 }
+  0x1d   :  { %143 = vst [vmem:[#allocation0 + $0x60] sm:$0xff] /*vst_source=*/%v141_v37  ;;  %v161_v43 = vmul.f32 65536.0, %v160_v38  ;;  %v172_v44 = vmul.f32 65536.0, %v171_v40 }
+  0x1e   :  { %v152_v45 = vadd.f32 %v151_v35, %v150_v41 }
+  0x1f   :  { %v163_v46 = vadd.f32 %v162_v39, %v161_v43  ;;  %v174_v47 = vadd.f32 %v173_v42, %v172_v44 }
+  0x20   :  { %154 = vst [vmem:[#allocation0 + $0x68] sm:$0xff] /*vst_source=*/%v152_v45 }
+  0x21   :  { %165 = vst [vmem:[#allocation0 + $0x70] sm:$0xff] /*vst_source=*/%v163_v46 }
+  0x22   :  { %176 = vst [vmem:[#allocation0 + $0x78] sm:$0xff] /*vst_source=*/%v174_v47 }
+  0x23   :  { %185 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s181_s4, /*size_in_granules=*/2048, /*hbm=*/%s183_s0, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (16)
+dynamic_base_bounds: (16)
+window_bounds: (16)
+iteration_bounds: (1)
+strides: (16)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 4096 */ }
+  0x24   :  { %214 = dma.done.wait [#allocation2], 2048 /* pipeline-emitter-dma-wait */ }
+  0x25   :  { %215 = vsyncadd [#allocation2], 4294965248 }
+  0x26   :  { %188 = vsyncpa [#allocation2], 1 } /* exit bundle: %iota.1 = iota() */

@@ -1,0 +1,44 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %v11_v0 = vlaneseq  ;;  %s120_s0 = inlined_call_operand.vmem [shape: f32[8,128], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s121_s1 = inlined_call_operand.vmem [shape: f32[8], index: 1, kind: input, shape index: {}] /* operand 1 */  ;;  %s122_s2 = inlined_call_operand.vmem [shape: f32[8], index: 2, kind: input, shape index: {}] /* operand 2 */  ;;  %s123_s3 = inlined_call_operand.hbm [shape: f32[8,128], index: 3, kind: output, shape index: {}] /* operand 3 */ } /* entry bundle: %fusion = fusion(%copy-done, %fusion.1, %reduce.8) */
+   0x1   :  { %4 = vsyncpa [#allocation2], 0  ;;  %v10_v2 = vld [vmem:[%s121_s1] ss:$0 sm:$0xff]  ;;  %s48_s3 = sshll.u32 %s123_s3, 4  ;;  %s49_s3 = int_to_ptr.hbm [resolvable:$true] %s48_s3 }
+   0x2   :  { %v12_v1 = vshrl.u32 %v11_v0, 7  ;;  %v17_v3 = vld [vmem:[%s122_s2] ss:$0 sm:$0xff] }
+   0x3   :  { %v9_v5 = vld [vmem:[%s120_s0] sm:$0xff]  ;;  %s87_s0 = smov [#allocation0] /* materialized constant */ }
+   0x4   :  { %56 = vset.pattern.permute.xlu0 %v12_v1  ;;  %s46_s16 = sshll.u32 %s87_s0, 4  ;;  %s47_s16 = int_to_ptr.vmem [resolvable:$true] %s46_s16 }
+   0x5   :  { %15 = vperm.xlu0 /*pattern=*/%56, /*source=*/%v10_v2 /* Set PCR instruction */ }
+   0x6   :  { %22 = vperm.xlu0 /*pattern=*/%56, /*source=*/%v17_v3 /* Set PCR instruction */ }
+   0x7   :  { %v16_v4 = vpop.permute.xlu0 %15 }
+   0x8   :  { %57 = vrcp.f32 %v16_v4  ;;  %v38_v13 = vand.u32 2147483648, %v16_v4  ;;  %vm32_vm1 = vweird.f32 %v16_v4  ;;  %v36_v15 = vand.u32 2147483647, %v16_v4 }
+   0x9   :  { %v39_v17 = vor.u32 1.1754944e-38, %v38_v13  ;;  %vm37_vm3 = vcmp.eq.f32.partialorder %v36_v15, 8.507059e+37 }
+   0xa   :  { %v58_v6 = vpop.eup %57 }
+   0xb   :  { %v28_v7 = vmul.f32 %v58_v6, %v16_v4  ;;  %v23_v8 = vpop.permute.xlu0 %22  ;;  %vm33_vm0 = vweird.f32 %v58_v6 }
+   0xc   :  { %v24_v9 = vsub.f32 %v9_v5, %v23_v8  ;;  %vm34_vm2 = vmor %vm32_vm1, %vm33_vm0 }
+   0xd   :  { %v29_v10 = vsub.f32 1.0, %v28_v7 }
+   0xe   :  { %v25_v11 = vmul.f32 1.442695, %v24_v9 }
+   0xf   :  { %v30_v12 = vmul.f32 %v58_v6, %v29_v10 }
+  0x10   :  { %59 = vpow2.f32 %v25_v11 }
+  0x11   :  { %v31_v14 = vadd.f32 %v58_v6, %v30_v12 }
+  0x12   :  { %v35_v16 = vsel /*vm=*/%vm34_vm2, /*on_true_vy=*/%v58_v6, /*on_false_vx=*/%v31_v14 }
+  0x13   :  { %v40_v19 = vsel /*vm=*/%vm37_vm3, /*on_true_vy=*/%v39_v17, /*on_false_vx=*/%v35_v16 }
+  0x14   :  { %v60_v18 = vpop.eup %59 }
+  0x15   :  { %v41_v20 = vmul.f32 %v60_v18, %v40_v19 }
+  0x16   :  { %42 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v41_v20 }
+  0x17   :  { %51 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s47_s16, /*size_in_granules=*/128, /*hbm=*/%s49_s3, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (1, 1)
+dynamic_base_bounds: (1, 1)
+window_bounds: (1, 1)
+iteration_bounds: (1, 1)
+strides: (1, 1)
+pad_low: (0, 0)
+pad_high: (0, 0)
+element_size_in_bytes: 4096 */ }
+  0x18   :  { %85 = dma.done.wait [#allocation2], 128 /* pipeline-emitter-dma-wait */ }
+  0x19   :  { %86 = vsyncadd [#allocation2], 4294967168 }
+  0x1a   :  { %54 = vsyncpa [#allocation2], 1 } /* exit bundle: %fusion = fusion(%copy-done, %fusion.1, %reduce.8) */

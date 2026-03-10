@@ -1,0 +1,8 @@
+HloModule jit_vector_add_bf16_tiled, is_scheduled=true, entry_computation_layout={(f32[32,512]{1,0:T(8,128)}, f32[32,512]{1,0:T(8,128)})->f32[32,512]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+ENTRY %main.4 (Arg_0.1: f32[32,512], Arg_1.2: f32[32,512]) -> f32[32,512] {
+  %Arg_1.2 = f32[32,512]{1,0:T(8,128)} parameter(1), metadata={op_name="y"}
+  %Arg_0.1 = f32[32,512]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  ROOT %add.3 = f32[32,512]{1,0:T(8,128)} add(%Arg_0.1, %Arg_1.2), metadata={op_name="jit(vector_add_bf16_tiled)/jit(main)/vector_add_bf16_tiled/add" source_file="/tmp/ipython-input-4011802442.py" source_line=5}
+}
+

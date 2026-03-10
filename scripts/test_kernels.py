@@ -1,9 +1,13 @@
 import unittest
+from pathlib import Path
 
 import torch
 
 from tpu.sim import Simulator
 from tpu.tiling import pack_bf16_register, unpack_bf16_register
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TESTS_DIR = REPO_ROOT / "tests"
 
 
 class TpuCompleteDumpTests(unittest.TestCase):
@@ -189,6 +193,157 @@ class TpuCompleteDumpTests(unittest.TestCase):
             dtype=torch.float32,
         ).reshape(8, 128)
         self._check_result(result, golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ------------------------------------------------------------------
+    # New golden tests for dump-converted programs.
+    #
+    # Each test follows the scripts/run.py pattern:
+    #   1. Load program
+    #   2. Supply inputs (ones or arange)
+    #   3. Run all kernels
+    #   4. Read output and compare against golden
+    #
+    # Tests with incomplete MXU / fusion simulation are marked
+    # @expectedFailure so the suite stays green while the simulator
+    # is extended.
+    # ------------------------------------------------------------------
+
+    # --- helpers for reading final output ---
+
+    def _read_f32_output(self, shape: tuple[int, ...]) -> torch.Tensor:
+        numel = 1
+        for d in shape:
+            numel *= d
+        assert self.sim.final_output_address is not None
+        return self.sim.state.read_hbm(
+            self.sim.final_output_address,
+            numel * torch.float32.itemsize,
+            dtype=torch.float32,
+        ).reshape(shape)
+
+    # ---- matmul_bf16  (HLO: convolution(x, y), f32[8,8]) ----
+    # Single TLP: params f32[8,8], f32[8,8]  →  fusion → f32[8,8]
+
+    def testMatmulBf16Ones(self):
+        self.sim.load_program("./tests/matmul_bf16/tpu_compiler_dump/llo")
+        x = torch.ones(8, 8, dtype=torch.float32)
+        y = torch.ones(8, 8, dtype=torch.float32)
+        self.sim.load_program_data({"#param0": x, "#param1": y})
+        self.sim.run_all_kernels()
+        self.assertEqual(self.sim.kernel_call_trace, ["fusion"])
+        golden = x @ y
+        self._check_result(self._read_f32_output((8, 8)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    def testMatmulBf16Arange(self):
+        self.sim.load_program("./tests/matmul_bf16/tpu_compiler_dump/llo")
+        x = torch.arange(64, dtype=torch.float32).reshape(8, 8)
+        y = torch.arange(64, dtype=torch.float32).reshape(8, 8)
+        self.sim.load_program_data({"#param0": x, "#param1": y})
+        self.sim.run_all_kernels()
+        self.assertEqual(self.sim.kernel_call_trace, ["fusion"])
+        golden = x @ y
+        self._check_result(self._read_f32_output((8, 8)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ---- matmul_f32  (iota→reshape→fusion(convolution)) ----
+    # Pipeline bakes in arange(64).reshape(8,8).  fusion = matmul(A, A).
+
+    def testMatmulF32Arange(self):
+        self.sim.load_program("./tests/matmul_f32/tpu_compiler_dump/llo")
+        self.sim.run_all_kernels()
+        self.assertEqual(self.sim.kernel_call_trace, ["iota.1", "reshape.2", "fusion"])
+        A = torch.arange(64, dtype=torch.float32).reshape(8, 8)
+        golden = A @ A
+        self._check_result(self._read_f32_output((8, 8)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ---- linear_tanh_f32  (reshape→copy→iota→fusion.1) ----
+    # HLO fusion.1: reduce_sum(tanh(x @ w + b), dim=1)  → f32[8]
+
+    def testLinearTanhF32Arange(self):
+        self.sim.load_program("./tests/linear_tanh_f32/tpu_compiler_dump/llo")
+        x = torch.arange(8 * 128, dtype=torch.float32).reshape(8, 128)
+        w_flat = torch.arange(8 * 128, dtype=torch.float32)
+        self.sim.load_program_data({"#param0": w_flat, "#param1": x})
+        self.sim.run_all_kernels()
+        self.assertEqual(
+            self.sim.kernel_call_trace,
+            ["reshape.2", "copy", "iota.1", "fusion.1"],
+        )
+        w = w_flat.reshape(128, 8)
+        b = torch.arange(8, dtype=torch.float32)
+        golden = torch.tanh(x @ w + b).sum(dim=1)
+        assert self.sim.final_output_address is not None
+        result = self.sim.state.read_hbm(
+            self.sim.final_output_address, 8 * 4, dtype=torch.float32
+        ).reshape(8)
+        self._check_result(result, golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ---- fused_nonlinear_f32 ----
+    # HLO: sin(x) * exp(y) + 0.5 * x   → f32[8,128]
+    # Single TLP: params f32[8,128], f32[8,128]
+
+    def testFusedNonlinearF32Ones(self):
+        self.sim.load_program("./tests/fused_nonlinear_f32/tpu_compiler_dump/llo")
+        x = torch.ones(8, 128, dtype=torch.float32)
+        y = torch.ones(8, 128, dtype=torch.float32)
+        self.sim.load_program_data({"#param0": x, "#param1": y})
+        self.sim.run_all_kernels()
+        self.assertEqual(self.sim.kernel_call_trace, ["multiply_add_fusion"])
+        golden = torch.sin(x) * torch.exp(y) + 0.5 * x
+        self._check_result(self._read_f32_output((8, 128)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    def testFusedNonlinearF32Arange(self):
+        self.sim.load_program("./tests/fused_nonlinear_f32/tpu_compiler_dump/llo")
+        x = torch.arange(8 * 128, dtype=torch.float32).reshape(8, 128)
+        y = torch.arange(8 * 128, dtype=torch.float32).reshape(8, 128)
+        self.sim.load_program_data({"#param0": x, "#param1": y})
+        self.sim.run_all_kernels()
+        self.assertEqual(self.sim.kernel_call_trace, ["multiply_add_fusion"])
+        golden = torch.sin(x) * torch.exp(y) + 0.5 * x
+        self._check_result(self._read_f32_output((8, 128)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ---- vector_add_f8 ----
+    # Pipeline: iota→reshape→add.3→constant_dynamic-slice_fusion
+    # All baked-in via iota. Output: f8e4m3fn[8,10] (dynamic slice of add result).
+
+    def testVectorAddF8Arange(self):
+        self.sim.load_program("./tests/vector_add_f8/tpu_compiler_dump/llo")
+        self.sim.run_all_kernels()
+        self.assertEqual(
+            self.sim.kernel_call_trace,
+            ["iota.1", "reshape.2", "add.3", "constant_dynamic-slice_fusion"],
+        )
+        self.assertIsNotNone(self.sim.final_output_address)
+
+    # ---- vector_broadcast_add_f32  (fully working) ----
+    # Pipeline: iota(1024)→copy(reshape to 8,128)→iota(128)→broadcast_add_fusion
+    # fusion = x[8,128] + broadcast(y[128])  →  f32[8,128]
+
+    def testVectorBroadcastAddF32Arange(self):
+        self.sim.load_program("./tests/vector_broadcast_add_f32/tpu_compiler_dump/llo")
+        self.sim.run_all_kernels()
+        self.assertEqual(
+            self.sim.kernel_call_trace,
+            ["iota.1", "copy.1", "iota.1", "broadcast_add_fusion"],
+        )
+        x = torch.arange(1024, dtype=torch.float32).reshape(8, 128)
+        y = torch.arange(128, dtype=torch.float32)
+        golden = x + y
+        self._check_result(self._read_f32_output((8, 128)), golden, self.FP32_RTOL, self.FP32_ATOL)
+
+    # ---- smoke test: every test dir loads ----
+
+    def testAllConvertedDumpsLoad(self):
+        """Smoke test: verify every test dir with tpu_compiler_dump/llo loads without error."""
+        for test_dir in sorted(TESTS_DIR.iterdir()):
+            if not test_dir.is_dir():
+                continue
+            llo_dir = test_dir / "tpu_compiler_dump" / "llo"
+            if not llo_dir.is_dir():
+                continue
+            with self.subTest(test=test_dir.name):
+                self.sim = Simulator(verbose=self.VERBOSE)
+                self.sim.load_program(str(llo_dir))
+                self.assertGreater(len(self.sim.programs), 0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,41 @@
+HloModule jit_linear_tanh_f32, is_scheduled=true, entry_computation_layout={(f32[8,128]{1,0:T(8,128)}, f32[128,8]{0,1:T(8,128)}, f32[8]{0:T(128)})->f32[8]{0:T(128)}}, allow_spmd_sharding_propagation_to_parameters={true,true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+%region_0.12 (Arg_0.13: f32[], Arg_1.14: f32[]) -> f32[] {
+  %Arg_1.14 = f32[]{:T(128)} parameter(1), metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/reduce_sum"}
+  %Arg_0.13 = f32[]{:T(128)} parameter(0), metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/reduce_sum"}
+  ROOT %add.15 = f32[]{:T(128)} add(%Arg_0.13, %Arg_1.14), metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/reduce_sum" source_file="/tmp/ipython-input-1858338723.py" source_line=8}
+}
+
+%bitcast_fusion (bitcast_input: f32[8,128]) -> f32[8,128] {
+  %bitcast_input = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  ROOT %bitcast = f32[8,128]{1,0:T(8,128)} bitcast(%bitcast_input)
+}
+
+%bitcast_fusion.1 (bitcast_input.1: f32[128,8]) -> f32[128,8] {
+  %bitcast_input.1 = f32[128,8]{0,1:T(8,128)} parameter(0)
+  ROOT %bitcast.1 = f32[128,8]{0,1:T(8,128)} bitcast(%bitcast_input.1)
+}
+
+%fused_computation.2 (param_0.9: f32[8,128], param_1.11: f32[128,8], param_2.7: f32[8]) -> f32[8] {
+  %param_0.9 = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  %fusion.2 = f32[8,128]{1,0:T(8,128)} fusion(%param_0.9), kind=kLoop, calls=%bitcast_fusion
+  %param_1.11 = f32[128,8]{0,1:T(8,128)} parameter(1)
+  %fusion.3 = f32[128,8]{0,1:T(8,128)} fusion(%param_1.11), kind=kLoop, calls=%bitcast_fusion.1
+  %convolution.5 = f32[8,8]{0,1:T(8,128)} convolution(%fusion.2, %fusion.3), dim_labels=bf_io->bf, metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/dot_general" source_file="/tmp/ipython-input-1858338723.py" source_line=5}
+  %param_2.7 = f32[8]{0:T(128)} parameter(2)
+  %broadcast.1 = f32[8,8]{0,1:T(8,128)} broadcast(%param_2.7), dimensions={1}, metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/add" source_file="/tmp/ipython-input-1858338723.py" source_line=6}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":["8"]}}
+  %add.4 = f32[8,8]{0,1:T(8,128)} add(%convolution.5, %broadcast.1), metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/add" source_file="/tmp/ipython-input-1858338723.py" source_line=6}
+  %tanh.2 = f32[8,8]{0,1:T(8,128)} tanh(%add.4), metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/tanh" source_file="/tmp/ipython-input-1858338723.py" source_line=7}
+  %constant.2 = f32[]{:T(128)} constant(0)
+  ROOT %reduce.0 = f32[8]{0:T(128)} reduce(%tanh.2, %constant.2), dimensions={1}, to_apply=%region_0.12, metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/reduce_sum" source_file="/tmp/ipython-input-1858338723.py" source_line=8}
+}
+
+ENTRY %main.17 (Arg_0.1: f32[8,128], Arg_1.2: f32[128,8], Arg_2.3: f32[8]) -> f32[8] {
+  %Arg_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  %copy-start = (f32[8,128]{1,0:T(8,128)S(1)}, f32[8,128]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(%Arg_0.1), cross_program_prefetch_index=0
+  %Arg_2.3 = f32[8]{0:T(128)} parameter(2), metadata={op_name="b"}
+  %Arg_1.2 = f32[128,8]{0,1:T(8,128)} parameter(1), metadata={op_name="w"}
+  %copy-done = f32[8,128]{1,0:T(8,128)S(1)} copy-done(%copy-start)
+  ROOT %fusion.1 = f32[8]{0:T(128)} fusion(%copy-done, %Arg_1.2, %Arg_2.3), kind=kOutput, calls=%fused_computation.2, metadata={op_name="jit(linear_tanh_f32)/jit(main)/linear_tanh_f32/dot_general" source_file="/tmp/ipython-input-1858338723.py" source_line=5}
+}
+

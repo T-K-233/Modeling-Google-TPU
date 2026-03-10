@@ -117,19 +117,28 @@ class ArchState:
         self.vreg[dest].view(value.dtype)[:] = value.flatten()
 
     def read_hbm(self, address: int, size: int, dtype: torch.dtype = torch.uint8) -> torch.Tensor:
-        return self.hbm.read(address, size).view(dtype)
+        raw = self.hbm.read(address, size)
+        if dtype != torch.uint8:
+            raw = raw.clone()
+        return raw.view(dtype)
 
     def write_hbm(self, address: int, data: torch.Tensor) -> None:
         self.hbm.write(address, data.flatten().view(torch.uint8))
 
     def read_vmem(self, address: int, size: int, dtype: torch.dtype = torch.uint8) -> torch.Tensor:
-        return self.vmem.read(address, size).view(dtype)
+        raw = self.vmem.read(address, size)
+        if dtype != torch.uint8:
+            raw = raw.clone()
+        return raw.view(dtype)
 
     def write_vmem(self, address: int, data: torch.Tensor) -> None:
         self.vmem.write(address, data.flatten().view(torch.uint8))
 
     def read_smem(self, address: int, size: int, dtype: torch.dtype = torch.uint8) -> torch.Tensor:
-        return self.smem.read(address, size).view(dtype)
+        raw = self.smem.read(address, size)
+        if dtype != torch.uint8:
+            raw = raw.clone()
+        return raw.view(dtype)
 
     def write_smem(self, address: int, data: torch.Tensor) -> None:
         self.smem.write(address, data.flatten().view(torch.uint8))

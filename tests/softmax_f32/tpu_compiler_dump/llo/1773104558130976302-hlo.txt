@@ -1,0 +1,45 @@
+HloModule jit_softmax_f32, is_scheduled=true, entry_computation_layout={(f32[8,128]{1,0:T(8,128)})->f32[8,128]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}
+
+%region_0.4 (Arg_0.5: f32[], Arg_1.6: f32[]) -> f32[] {
+  %Arg_1.6 = f32[]{:T(128)} parameter(1), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_max"}
+  %Arg_0.5 = f32[]{:T(128)} parameter(0), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_max"}
+  ROOT %maximum.7 = f32[]{:T(128)} maximum(%Arg_0.5, %Arg_1.6), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_max" source_file="/tmp/ipython-input-2897592578.py" source_line=5}
+}
+
+%fused_computation.1 (param_0.8: f32[8,128], param_1.10: f32[8], param_2.3: f32[8]) -> f32[8,128] {
+  %param_0.8 = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  %param_2.3 = f32[8]{0:T(128)S(1)} parameter(2)
+  %broadcast.3 = f32[8,128]{1,0:T(8,128)} broadcast(%param_2.3), dimensions={0}, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/sub" source_file="/tmp/ipython-input-2897592578.py" source_line=5}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":["8"]}}
+  %subtract.2 = f32[8,128]{1,0:T(8,128)} subtract(%param_0.8, %broadcast.3), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/sub" source_file="/tmp/ipython-input-2897592578.py" source_line=5}
+  %exponential.2 = f32[8,128]{1,0:T(8,128)} exponential(%subtract.2), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/exp" source_file="/tmp/ipython-input-2897592578.py" source_line=6}
+  %param_1.10 = f32[8]{0:T(128)S(1)} parameter(1)
+  %broadcast.2 = f32[8,128]{1,0:T(8,128)} broadcast(%param_1.10), dimensions={0}, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/div" source_file="/tmp/ipython-input-2897592578.py" source_line=7}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":["8"]}}
+  ROOT %divide.0 = f32[8,128]{1,0:T(8,128)} divide(%exponential.2, %broadcast.2), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/div" source_file="/tmp/ipython-input-2897592578.py" source_line=7}
+}
+
+%region_1.15 (Arg_0.16: f32[], Arg_1.17: f32[]) -> f32[] {
+  %Arg_1.17 = f32[]{:T(128)} parameter(1), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_sum"}
+  %Arg_0.16 = f32[]{:T(128)} parameter(0), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_sum"}
+  ROOT %add.18 = f32[]{:T(128)} add(%Arg_0.16, %Arg_1.17), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_sum" source_file="/tmp/ipython-input-2897592578.py" source_line=7}
+}
+
+%fused_computation.2 (param_0.9: f32[8,128], param_1.11: f32[8]) -> f32[8] {
+  %param_0.9 = f32[8,128]{1,0:T(8,128)S(1)} parameter(0)
+  %param_1.11 = f32[8]{0:T(128)S(1)} parameter(1)
+  %broadcast.4 = f32[8,128]{1,0:T(8,128)} broadcast(%param_1.11), dimensions={0}, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/sub" source_file="/tmp/ipython-input-2897592578.py" source_line=5}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":["8"]}}
+  %subtract.4 = f32[8,128]{1,0:T(8,128)} subtract(%param_0.9, %broadcast.4), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/sub" source_file="/tmp/ipython-input-2897592578.py" source_line=5}
+  %exponential.4 = f32[8,128]{1,0:T(8,128)} exponential(%subtract.4), metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/exp" source_file="/tmp/ipython-input-2897592578.py" source_line=6}
+  %constant.4 = f32[]{:T(128)} constant(0)
+  ROOT %reduce.0 = f32[8]{0:T(128)S(1)} reduce(%exponential.4, %constant.4), dimensions={1}, to_apply=%region_1.15, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_sum" source_file="/tmp/ipython-input-2897592578.py" source_line=7}
+}
+
+ENTRY %main.25 (Arg_0.1: f32[8,128]) -> f32[8,128] {
+  %constant.3 = f32[]{:T(128)} constant(-inf)
+  %Arg_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  %copy-start = (f32[8,128]{1,0:T(8,128)S(1)}, f32[8,128]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(%Arg_0.1)
+  %reduce.8 = f32[8]{0:T(128)S(1)} reduce(%Arg_0.1, %constant.3), dimensions={1}, to_apply=%region_0.4, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_max" source_file="/tmp/ipython-input-2897592578.py" source_line=5}
+  %copy-done = f32[8,128]{1,0:T(8,128)S(1)} copy-done(%copy-start)
+  %fusion.1 = f32[8]{0:T(128)S(1)} fusion(%copy-done, %reduce.8), kind=kLoop, calls=%fused_computation.2, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/reduce_sum" source_file="/tmp/ipython-input-2897592578.py" source_line=7}
+  ROOT %fusion = f32[8,128]{1,0:T(8,128)} fusion(%copy-done, %fusion.1, %reduce.8), kind=kLoop, calls=%fused_computation.1, metadata={op_name="jit(softmax_f32)/jit(main)/softmax_f32/div" source_file="/tmp/ipython-input-2897592578.py" source_line=7}
+}
+

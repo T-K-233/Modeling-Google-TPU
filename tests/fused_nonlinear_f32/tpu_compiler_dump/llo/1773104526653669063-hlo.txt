@@ -1,0 +1,20 @@
+HloModule jit_fused_nonlinear_f32, is_scheduled=true, entry_computation_layout={(f32[8,128]{1,0:T(8,128)}, f32[8,128]{1,0:T(8,128)})->f32[8,128]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+%fused_computation (param_0.1: f32[8,128], param_1.3: f32[8,128]) -> f32[8,128] {
+  %param_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0)
+  %sine.0 = f32[8,128]{1,0:T(8,128)} sine(%param_0.1), metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/sin" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+  %param_1.3 = f32[8,128]{1,0:T(8,128)} parameter(1)
+  %exponential.0 = f32[8,128]{1,0:T(8,128)} exponential(%param_1.3), metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/exp" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+  %multiply.1 = f32[8,128]{1,0:T(8,128)} multiply(%sine.0, %exponential.0), metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/mul" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+  %constant.0 = f32[]{:T(128)} constant(0.5)
+  %broadcast.0 = f32[8,128]{1,0:T(8,128)} broadcast(%constant.0), dimensions={}, backend_config={"flag_configs":[],"scoped_memory_configs":[],"used_scoped_memory_configs":[],"output_chunk_bound_config":{"output_chunk_bound":[]}}
+  %multiply.0 = f32[8,128]{1,0:T(8,128)} multiply(%param_0.1, %broadcast.0), metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/mul" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+  ROOT %add.0 = f32[8,128]{1,0:T(8,128)} add(%multiply.1, %multiply.0), metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/add" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+}
+
+ENTRY %main.10 (Arg_0.1: f32[8,128], Arg_1.2: f32[8,128]) -> f32[8,128] {
+  %Arg_1.2 = f32[8,128]{1,0:T(8,128)} parameter(1), metadata={op_name="y"}
+  %Arg_0.1 = f32[8,128]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  ROOT %multiply_add_fusion = f32[8,128]{1,0:T(8,128)} fusion(%Arg_0.1, %Arg_1.2), kind=kLoop, calls=%fused_computation, metadata={op_name="jit(fused_nonlinear_f32)/jit(main)/fused_nonlinear_f32/add" source_file="/tmp/ipython-input-1584071506.py" source_line=5}
+}
+

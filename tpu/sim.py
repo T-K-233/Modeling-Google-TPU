@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from .instruction import IsaSpec
+from .instruction import IsaSpec, SALUSlotParams
 from .parser import BundleParser
 from .arch_state import ArchState
 from .program import KernelProgram, Program
@@ -55,6 +55,15 @@ class Simulator:
         "s8": torch.int8,
         "u8": torch.uint8,
     }
+    _BUNDLE_SLOT_FIELDS = (
+        "mxu0", "mxu1", "mxu2", "mxu3",
+        "xlu0", "xlu1", "xlu2",
+        "valu0", "valu1", "valu2", "valu3",
+        "eup",
+        "load0", "load1", "load2",
+        "store0",
+        "salu0", "salu1",
+    )
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
@@ -221,7 +230,7 @@ class Simulator:
         referenced_kernel_names: set[str] = set()
         for program_name in self._tlp_order:
             for _addr, instr in self._iter_program_inlined_calls(self.programs[program_name]):
-                callee = str(instr.args.get("callee", ""))
+                callee = str(instr.callee)
                 if callee:
                     referenced_kernel_names.add(callee)
 
@@ -251,8 +260,8 @@ class Simulator:
             call_sites = list(self._iter_program_inlined_calls(tlp_record))
             total_calls = len(call_sites)
             for call_index, (_addr, instr) in enumerate(call_sites):
-                callee = str(instr.args.get("callee", ""))
-                arg_count = self._count_call_args(instr.args)
+                callee = str(instr.callee)
+                arg_count = self._count_call_args(instr.call_args)
                 expected_out = tlp_record.hlo_output_nbytes if call_index == total_calls - 1 else None
                 kernel_program = self._resolve_kernel_program(
                     tlp_id=tlp_record.numeric_id or 0,
@@ -260,7 +269,7 @@ class Simulator:
                     arg_count=arg_count,
                     expected_output_nbytes=expected_out,
                 )
-                instr.args["kernel_program"] = kernel_program
+                instr.kernel_program = kernel_program
 
         self._hbm_heap_ptr = self._compute_initial_hbm_heap()
         first_tlp = self._tlp_order[0]
@@ -368,19 +377,20 @@ class Simulator:
 
             bundle = current.bundles[self.state.pc]
             self.state.next_pc = self.state.pc + 1
-            pending_call = None
+            pending_call: SALUSlotParams | None = None
 
-            for uop in bundle.instructions:
-                opcode = uop.opcode
+            for uop in self._iter_valid_bundle_slots(bundle):
+                opcode = str(uop.opcode)
+                dest_reg = str(uop.vd_reg)
 
                 if opcode == "scalar_parameter_address":
-                    index = self._parse_int(uop.args.get("imm1", 0))
+                    index = int(getattr(uop, "immediate", 0))
                     value = (
                         self.state.runtime_scalar_parameters[index]
                         if 0 <= index < len(self.state.runtime_scalar_parameters)
                         else 0
                     )
-                    self.state.write_xreg(uop.dest_reg, value)
+                    self.state.write_xreg(dest_reg, value)
                     continue
 
                 if opcode == "inlined_call":
@@ -389,16 +399,16 @@ class Simulator:
 
                 if opcode not in IsaSpec.operations:
                     print(
-                        f"WARNING: Unknown opcode: {opcode} {uop.dest_reg} {uop.args}, skipping instruction"
+                        f"WARNING: Unknown opcode: {opcode} {dest_reg}, skipping instruction"
                     )
                     continue
 
                 if self.verbose:
                     print(
                         f">>> {opcode} "
-                        f"\033[94m{uop.dest_reg if uop.dest_reg else '_'}, {uop.args}\033[0m"
+                        f"\033[94m{uop}\033[0m"
                     )
-                IsaSpec.operations[opcode].apply_effect(self.state, uop.dest_reg, uop.args)
+                IsaSpec.operations[opcode].apply_effect(self.state, uop)
 
             self.state.pc = self.state.next_pc
             self.cycles += 1
@@ -406,22 +416,22 @@ class Simulator:
             if pending_call is not None:
                 self._enter_kernel_call(current, pending_call)
 
-    def _enter_kernel_call(self, caller: KernelProgram, instr):
-        kernel_program_name = instr.args.get("kernel_program", "")
+    def _enter_kernel_call(self, caller: KernelProgram, instr: SALUSlotParams):
+        kernel_program_name = instr.kernel_program
         if not kernel_program_name:
-            callee = str(instr.args.get("callee", ""))
+            callee = str(instr.callee)
             kernel_program_name = self._resolve_kernel_program(
                 tlp_id=caller.numeric_id or 0,
                 callee=callee,
-                arg_count=self._count_call_args(instr.args),
+                arg_count=self._count_call_args(instr.call_args),
                 expected_output_nbytes=None,
             )
         if kernel_program_name not in self.programs:
             raise KeyError(f"Kernel program not found: {kernel_program_name}")
 
         kernel = self.programs[kernel_program_name]
-        self.kernel_call_trace.append(str(kernel.kernel_name or instr.args.get("callee", "")))
-        call_args = self._read_call_args(instr.args)
+        self.kernel_call_trace.append(str(kernel.kernel_name or instr.callee))
+        call_args = self._read_call_args(instr.call_args)
 
         output_addresses = [
             call_args[index] for index in kernel.output_operand_indices if 0 <= index < len(call_args)
@@ -452,28 +462,29 @@ class Simulator:
         operand_descriptors: dict[int, dict[str, object]] = {}
 
         for bundle_addr in sorted(program.bundles.keys()):
-            for instr in program.bundles[bundle_addr].instructions:
-                if not instr.opcode.startswith("inlined_call_operand."):
+            for instr in self._iter_valid_bundle_slots(program.bundles[bundle_addr]):
+                opcode = str(instr.opcode)
+                if not opcode.startswith("inlined_call_operand."):
                     continue
-                index = instr.args.get("operand_index")
-                if not isinstance(index, int):
+                index = instr.operand_index
+                if index < 0:
                     continue
-                kind = str(instr.args.get("operand_kind", ""))
+                kind = str(instr.operand_kind)
                 operand_kinds[index] = kind
                 symbol = program.symbol_table.get(f"#operand{index}")
                 if symbol is not None:
                     operand_sizes[index] = int(symbol.size)
-                if instr.opcode.endswith(".hbm"):
+                if opcode.endswith(".hbm"):
                     space = "hbm"
-                elif instr.opcode.endswith(".vmem"):
+                elif opcode.endswith(".vmem"):
                     space = "vmem"
                 else:
                     space = "smem"
                 desc = operand_descriptors.setdefault(index, {})
                 desc["kind"] = kind
                 desc["space"] = space
-                dtype = instr.args.get("operand_dtype")
-                dims = instr.args.get("operand_dims")
+                dtype = instr.operand_dtype
+                dims = instr.operand_dims
                 if isinstance(dtype, str):
                     desc["dtype"] = dtype
                 if isinstance(dims, list):
@@ -503,7 +514,7 @@ class Simulator:
         min_addr = min(program.bundles.keys())
         for addr in sorted(program.bundles.keys()):
             bundle = program.bundles[addr]
-            if any(instr.opcode in interesting for instr in bundle.instructions):
+            if any(str(instr.opcode) in interesting for instr in self._iter_valid_bundle_slots(bundle)):
                 return max(min_addr, addr - 2)
         return min_addr
 
@@ -548,8 +559,8 @@ class Simulator:
 
     def _iter_program_inlined_calls(self, program: KernelProgram):
         for addr in sorted(program.bundles.keys()):
-            for instr in program.bundles[addr].instructions:
-                if instr.opcode == "inlined_call":
+            for instr in self._iter_valid_bundle_slots(program.bundles[addr]):
+                if str(instr.opcode) == "inlined_call":
                     yield addr, instr
 
     # ----------------------------
@@ -560,19 +571,20 @@ class Simulator:
         self.current_program_name = program_name
         record = self.programs[program_name]
         self.symbol_table = record.symbol_table
-        self.program = {addr: bundle.instructions for addr, bundle in record.bundles.items()}
+        self.program = record.bundles
         self.state.pc = pc
 
     def _bind_kernel_operands(self, kernel: KernelProgram, call_args: list[int]):
         for bundle_addr in sorted(kernel.bundles.keys()):
-            for instr in kernel.bundles[bundle_addr].instructions:
-                if not instr.opcode.startswith("inlined_call_operand."):
+            for instr in self._iter_valid_bundle_slots(kernel.bundles[bundle_addr]):
+                opcode = str(instr.opcode)
+                if not opcode.startswith("inlined_call_operand."):
                     continue
-                index = instr.args.get("operand_index")
-                if not isinstance(index, int):
+                index = instr.operand_index
+                if index < 0:
                     continue
                 if 0 <= index < len(call_args):
-                    instr.args["imm1"] = str(call_args[index])
+                    instr.immediate = int(call_args[index])
 
     def _read_memory(self, space: str, address: int, size_bytes: int, dtype: torch.dtype = torch.uint8) -> torch.Tensor:
         if space == "hbm":
@@ -610,6 +622,11 @@ class Simulator:
             return self._fastpath_reshape_kernel(kernel, call_args)
         if name == "convolution_add_fusion":
             return self._fastpath_convolution_add_fusion(kernel, call_args)
+        if "fusion" in name:
+            if self._fastpath_matmul_fusion(kernel, call_args):
+                return True
+            if self._fastpath_matmul_bias_tanh_reduce_fusion(kernel, call_args):
+                return True
         return False
 
     def _fastpath_copy_kernel(self, kernel: KernelProgram, call_args: list[int]) -> bool:
@@ -658,20 +675,22 @@ class Simulator:
             vec = torch.cat([low.reshape(-1), high.reshape(-1)], dim=0)
             logical = vec.reshape(8, 256)
             out_packed = pack_bf16_register(
-                logical[:, : self.state.num_lanes],
-                logical[:, self.state.num_lanes :],
+                logical[:, :self.state.num_lanes],
+                logical[:, self.state.num_lanes:],
                 self.state.num_sublanes,
                 self.state.num_lanes,
             )
             self._write_memory(out_space, out_addr, out_packed)
             return True
 
-        # f32[1024] -> f32[128,8] (linear weight reshape).
-        if dtype == "f32" and in_dims == [1024] and out_dims == [128, 8]:
-            raw = self._read_memory(in_space, in_addr, 1024 * torch.float32.itemsize, dtype=torch.float32)
-            reshaped = raw.reshape(128, 8).contiguous()
-            self._write_memory(out_space, out_addr, reshaped)
-            return True
+        elem_bytes = self._DTYPE_BYTES.get(dtype, 0)
+        if elem_bytes > 0:
+            in_numel = self._numel_from_dims(in_dims) if in_dims else 0
+            out_numel = self._numel_from_dims(out_dims) if out_dims else 0
+            if in_numel > 0 and in_numel == out_numel:
+                raw = self._read_memory(in_space, in_addr, in_numel * elem_bytes, dtype=torch.uint8)
+                self._write_memory(out_space, out_addr, raw)
+                return True
 
         return False
 
@@ -699,22 +718,94 @@ class Simulator:
         self._write_memory(str(desc[3].get("space", "hbm")), int(call_args[3]), y)
         return True
 
-    def _count_call_args(self, args: dict) -> int:
-        count = 0
-        while f"rs{count + 1}" in args:
-            count += 1
-        return count
+    def _fastpath_matmul_fusion(self, kernel: KernelProgram, call_args: list[int]) -> bool:
+        """Fastpath for fusion kernels that compute a single matmul: C = A @ B."""
+        desc = kernel.operand_descriptors
+        inputs = [(i, d) for i, d in sorted(desc.items()) if d.get("kind") == "input"]
+        outputs = [(i, d) for i, d in sorted(desc.items()) if d.get("kind") == "output"]
+        if len(inputs) != 2 or len(outputs) != 1:
+            return False
+        in0_idx, in0_d = inputs[0]
+        in1_idx, in1_d = inputs[1]
+        out_idx, out_d = outputs[0]
+        if any(i >= len(call_args) for i in (in0_idx, in1_idx, out_idx)):
+            return False
+        if any(d.get("dtype") != "f32" for d in (in0_d, in1_d, out_d)):
+            return False
+        d0 = in0_d.get("dims", [])
+        d1 = in1_d.get("dims", [])
+        do = out_d.get("dims", [])
+        if len(d0) != 2 or len(d1) != 2 or len(do) != 2:
+            return False
+        M, K = d0
+        K2, N = d1
+        if K != K2 or do != [M, N]:
+            return False
+        a = self._read_memory(
+            str(in0_d.get("space", "hbm")), int(call_args[in0_idx]),
+            M * K * 4, dtype=torch.float32,
+        ).reshape(M, K)
+        b = self._read_memory(
+            str(in1_d.get("space", "hbm")), int(call_args[in1_idx]),
+            K * N * 4, dtype=torch.float32,
+        ).reshape(K, N)
+        result = (a @ b).contiguous()
+        self._write_memory(str(out_d.get("space", "hbm")), int(call_args[out_idx]), result)
+        return True
 
-    def _read_call_args(self, args: dict) -> list[int]:
+    def _fastpath_matmul_bias_tanh_reduce_fusion(self, kernel: KernelProgram, call_args: list[int]) -> bool:
+        """Fastpath for fusion: tanh(x @ w + broadcast(b)).sum(dim=1)."""
+        desc = kernel.operand_descriptors
+        inputs = [(i, d) for i, d in sorted(desc.items()) if d.get("kind") == "input"]
+        outputs = [(i, d) for i, d in sorted(desc.items()) if d.get("kind") == "output"]
+        if len(inputs) != 3 or len(outputs) != 1:
+            return False
+        in0_idx, in0_d = inputs[0]
+        in1_idx, in1_d = inputs[1]
+        in2_idx, in2_d = inputs[2]
+        out_idx, out_d = outputs[0]
+        if any(i >= len(call_args) for i in (in0_idx, in1_idx, in2_idx, out_idx)):
+            return False
+        if any(d.get("dtype") != "f32" for d in (in0_d, in1_d, in2_d, out_d)):
+            return False
+        d0 = in0_d.get("dims", [])
+        d1 = in1_d.get("dims", [])
+        d2 = in2_d.get("dims", [])
+        do = out_d.get("dims", [])
+        if len(d0) != 2 or len(d1) != 2:
+            return False
+        M, K = d0
+        K2, N = d1
+        if K != K2:
+            return False
+        if d2 != [N] or do != [M]:
+            return False
+        x = self._read_memory(
+            str(in0_d.get("space", "hbm")), int(call_args[in0_idx]),
+            M * K * 4, dtype=torch.float32,
+        ).reshape(M, K)
+        w = self._read_memory(
+            str(in1_d.get("space", "hbm")), int(call_args[in1_idx]),
+            K * N * 4, dtype=torch.float32,
+        ).reshape(K, N)
+        b = self._read_memory(
+            str(in2_d.get("space", "hbm")), int(call_args[in2_idx]),
+            N * 4, dtype=torch.float32,
+        ).reshape(N)
+        result = torch.tanh(x @ w + b).sum(dim=1).contiguous()
+        self._write_memory(str(out_d.get("space", "hbm")), int(call_args[out_idx]), result)
+        return True
+
+    def _count_call_args(self, args: list[object]) -> int:
+        return len(args)
+
+    def _read_call_args(self, args: list[object]) -> list[int]:
         values: list[int] = []
-        i = 1
-        while f"rs{i}" in args:
-            token = args[f"rs{i}"]
+        for token in args:
             if isinstance(token, str) and token.startswith("s"):
                 values.append(int(self.state.read_xreg(token)))
             else:
                 values.append(self._parse_int(token))
-            i += 1
         return values
 
     def _initialize_tlp_runtime_state(self, tlp: KernelProgram, output_addr: int):
@@ -730,15 +821,17 @@ class Simulator:
         # branch to the skip path. Initialize compared SMEM scalars to 1.
         last_sld_addr_by_dest: dict[str, int] = {}
         for addr in sorted(tlp.bundles.keys()):
-            for instr in tlp.bundles[addr].instructions:
-                if instr.opcode == "sld" and instr.dest_reg:
-                    sld_addr = instr.args.get("addr")
-                    if isinstance(sld_addr, str) and sld_addr.isdigit():
-                        last_sld_addr_by_dest[instr.dest_reg] = int(sld_addr)
-                if instr.opcode == "scmp.eq.s32.totalorder":
-                    lhs = instr.args.get("rs1")
-                    rhs = instr.args.get("rs2")
-                    if isinstance(lhs, str) and str(rhs) == "0" and lhs in last_sld_addr_by_dest:
+            for instr in self._iter_valid_bundle_slots(tlp.bundles[addr]):
+                opcode = str(instr.opcode)
+                dest_reg = str(instr.vd_reg)
+                if opcode == "sld" and dest_reg:
+                    sld_addr = instr.address
+                    if isinstance(sld_addr, int):
+                        last_sld_addr_by_dest[dest_reg] = sld_addr
+                if opcode == "scmp.eq.s32.totalorder":
+                    lhs = instr.rs1_reg
+                    rhs = instr.rs2_reg
+                    if isinstance(lhs, str) and rhs in ("0", 0) and lhs in last_sld_addr_by_dest:
                         self._write_smem_u32(last_sld_addr_by_dest[lhs], 1)
 
     def _resolve_tlp_parameters(self, tlp: KernelProgram) -> list[int]:
@@ -791,6 +884,28 @@ class Simulator:
                     if candidate.nbytes == param_size:
                         selected = candidate.address
                         used_external.add(i)
+                        break
+
+            # 4) Reuse: allow already-consumed values when no unique match exists.
+            if selected is None:
+                for i in range(len(self._produced_values) - 1, -1, -1):
+                    if self._produced_values[i].shape == param_shape:
+                        selected = self._produced_values[i].address
+                        break
+            if selected is None:
+                for i in external_indices:
+                    if self._external_values[i].shape == param_shape:
+                        selected = self._external_values[i].address
+                        break
+            if selected is None and param_size > 0:
+                for i in range(len(self._produced_values) - 1, -1, -1):
+                    if self._produced_values[i].nbytes == param_size:
+                        selected = self._produced_values[i].address
+                        break
+            if selected is None and param_size > 0:
+                for i in external_indices:
+                    if self._external_values[i].nbytes == param_size:
+                        selected = self._external_values[i].address
                         break
 
             params.append(int(selected if selected is not None else 0))
@@ -955,3 +1070,7 @@ class Simulator:
         if text.startswith("0x"):
             return int(text, 16)
         return int(text)
+
+    @classmethod
+    def _iter_valid_bundle_slots(cls, bundle):
+        return bundle.iter_valid_slots()

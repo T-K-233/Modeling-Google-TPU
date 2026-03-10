@@ -1,0 +1,42 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %1 = vsyncpa [#allocation2], 0  ;;  %v2_v0 = vlaneseq  ;;  %s128_s3 = smov [#allocation0] /* materialized constant */  ;;  %s137_s0 = inlined_call_operand.hbm [shape: f32[8192], index: 0, kind: output, shape index: {}] /* operand 0 */ } /* entry bundle: %iota.1 = iota() */
+   0x1   :  { %s92_s4 = sshll.u32 %s128_s3, 4  ;;  %s94_s0 = sshll.u32 %s137_s0, 4  ;;  %s93_s4 = int_to_ptr.vmem [resolvable:$true] %s92_s4  ;;  %s95_s0 = int_to_ptr.hbm [resolvable:$true] %s94_s0 }
+   0x2   :  { %v5_v1 = vshrl.u32 %v2_v0, 16  ;;  %v6_v2 = vand.u32 65535, %v2_v0  ;;  %v14_v3 = vadd.s32 1024, %v2_v0  ;;  %v25_v4 = vadd.s32 2048, %v2_v0 }
+   0x3   :  { %v36_v5 = vadd.s32 3072, %v2_v0  ;;  %v47_v6 = vadd.s32 4096, %v2_v0  ;;  %v58_v7 = vadd.s32 5120, %v2_v0  ;;  %v69_v8 = vadd.s32 6144, %v2_v0 }
+   0x4   :  { %v7_v9 = vcvt.s32.f32 %v5_v1  ;;  %v9_v10 = vcvt.s32.f32 %v6_v2  ;;  %v15_v11 = vshrl.u32 %v14_v3, 16  ;;  %v16_v12 = vand.u32 65535, %v14_v3 }
+   0x5   :  { %v26_v13 = vshrl.u32 %v25_v4, 16  ;;  %v27_v14 = vand.u32 65535, %v25_v4  ;;  %v37_v15 = vshrl.u32 %v36_v5, 16  ;;  %v38_v16 = vand.u32 65535, %v36_v5 }
+   0x6   :  { %v8_v17 = vmul.f32 65536.0, %v7_v9  ;;  %v17_v18 = vcvt.s32.f32 %v15_v11  ;;  %v19_v19 = vcvt.s32.f32 %v16_v12  ;;  %v48_v20 = vshrl.u32 %v47_v6, 16 }
+   0x7   :  { %v28_v21 = vcvt.s32.f32 %v26_v13  ;;  %v30_v22 = vcvt.s32.f32 %v27_v14  ;;  %v39_v23 = vcvt.s32.f32 %v37_v15  ;;  %v41_v24 = vcvt.s32.f32 %v38_v16 }
+   0x8   :  { %v10_v25 = vadd.f32 %v9_v10, %v8_v17  ;;  %v18_v26 = vmul.f32 65536.0, %v17_v18  ;;  %v49_v27 = vand.u32 65535, %v47_v6  ;;  %v50_v28 = vcvt.s32.f32 %v48_v20 }
+   0x9   :  { %v29_v29 = vmul.f32 65536.0, %v28_v21  ;;  %v40_v30 = vmul.f32 65536.0, %v39_v23  ;;  %v59_v31 = vshrl.u32 %v58_v7, 16  ;;  %v60_v32 = vand.u32 65535, %v58_v7 }
+   0xa   :  { %11 = vst [vmem:[#allocation0] sm:$0xff] /*vst_source=*/%v10_v25  ;;  %v20_v33 = vadd.f32 %v19_v19, %v18_v26  ;;  %v51_v34 = vmul.f32 65536.0, %v50_v28  ;;  %v52_v35 = vcvt.s32.f32 %v49_v27  ;;  %v70_v36 = vshrl.u32 %v69_v8, 16 }
+   0xb   :  { %v31_v37 = vadd.f32 %v30_v22, %v29_v29  ;;  %v42_v38 = vadd.f32 %v41_v24, %v40_v30  ;;  %v61_v39 = vcvt.s32.f32 %v59_v31  ;;  %v63_v40 = vcvt.s32.f32 %v60_v32 }
+   0xc   :  { %22 = vst [vmem:[#allocation0 + $0x8] sm:$0xff] /*vst_source=*/%v20_v33  ;;  %v53_v41 = vadd.f32 %v52_v35, %v51_v34  ;;  %v71_v42 = vand.u32 65535, %v69_v8  ;;  %v72_v43 = vcvt.s32.f32 %v70_v36  ;;  %v80_v44 = vadd.s32 7168, %v2_v0 }
+   0xd   :  { %33 = vst [vmem:[#allocation0 + $0x10] sm:$0xff] /*vst_source=*/%v31_v37  ;;  %v62_v45 = vmul.f32 65536.0, %v61_v39 }
+   0xe   :  { %44 = vst [vmem:[#allocation0 + $0x18] sm:$0xff] /*vst_source=*/%v42_v38  ;;  %v73_v46 = vmul.f32 65536.0, %v72_v43  ;;  %v74_v47 = vcvt.s32.f32 %v71_v42  ;;  %v81_v48 = vshrl.u32 %v80_v44, 16  ;;  %v82_v49 = vand.u32 65535, %v80_v44 }
+   0xf   :  { %55 = vst [vmem:[#allocation0 + $0x20] sm:$0xff] /*vst_source=*/%v53_v41  ;;  %v64_v50 = vadd.f32 %v63_v40, %v62_v45 }
+  0x10   :  { %v75_v51 = vadd.f32 %v74_v47, %v73_v46  ;;  %v83_v52 = vcvt.s32.f32 %v81_v48  ;;  %v85_v53 = vcvt.s32.f32 %v82_v49 }
+  0x11   :  { %66 = vst [vmem:[#allocation0 + $0x28] sm:$0xff] /*vst_source=*/%v64_v50 }
+  0x12   :  { %77 = vst [vmem:[#allocation0 + $0x30] sm:$0xff] /*vst_source=*/%v75_v51  ;;  %v84_v54 = vmul.f32 65536.0, %v83_v52 }
+  0x13   :  { %v86_v55 = vadd.f32 %v85_v53, %v84_v54 }
+  0x14   :  { %88 = vst [vmem:[#allocation0 + $0x38] sm:$0xff] /*vst_source=*/%v86_v55 }
+  0x15   :  { %97 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s93_s4, /*size_in_granules=*/1024, /*hbm=*/%s95_s0, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (8)
+dynamic_base_bounds: (8)
+window_bounds: (8)
+iteration_bounds: (1)
+strides: (8)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 4096 */ }
+  0x16   :  { %126 = dma.done.wait [#allocation2], 1024 /* pipeline-emitter-dma-wait */ }
+  0x17   :  { %127 = vsyncadd [#allocation2], 4294966272 }
+  0x18   :  { %100 = vsyncpa [#allocation2], 1 } /* exit bundle: %iota.1 = iota() */

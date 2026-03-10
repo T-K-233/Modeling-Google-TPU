@@ -2,10 +2,24 @@ import re
 from pathlib import Path
 from dataclasses import dataclass
 
-from .instruction import InstructionBundle
+from .instruction import (
+    BundleSlotType,
+    InstructionBundle,
+    IsaSpec,
+    SlotParams,
+    MXUSlotParams,
+    XLUSlotParams,
+    VALUSlotParams,
+    EUPParams,
+    LOADParams,
+    STOREParams,
+    SALUSlotParams,
+)
+from . import isa  # noqa: F401
 
 
 OperandValue = str | int | None
+AddressOperand = int | str | tuple[str, int]
 
 
 # One instruction: dest register, opcode, and argument fields (register part, immediate, or "")
@@ -39,6 +53,24 @@ class BundleParser:
 
     ALLOCATION_SUFFIX = "-post-delay-converter.txt"
     BUNDLE_SUFFIX = "-final_bundles.txt"
+    _SLOT_FIELDS_BY_TYPE: dict[BundleSlotType, tuple[str, ...]] = {
+        BundleSlotType.MXU: ("mxu0", "mxu1", "mxu2", "mxu3"),
+        BundleSlotType.XLU: ("xlu0", "xlu1", "xlu2"),
+        BundleSlotType.VALU: ("valu0", "valu1", "valu2", "valu3"),
+        BundleSlotType.EUP: ("eup",),
+        BundleSlotType.LOAD: ("load0", "load1", "load2"),
+        BundleSlotType.STORE: ("store0",),
+        BundleSlotType.SALU: ("salu0", "salu1"),
+    }
+    _ALL_SLOT_FIELDS: tuple[str, ...] = (
+        "mxu0", "mxu1", "mxu2", "mxu3",
+        "xlu0", "xlu1", "xlu2",
+        "valu0", "valu1", "valu2", "valu3",
+        "eup",
+        "load0", "load1", "load2",
+        "store0",
+        "salu0", "salu1",
+    )
 
     def __init__(self) -> None:
         # EUP (elementwise unary pipeline) bookkeeping shared across bundles
@@ -214,7 +246,7 @@ class BundleParser:
 
     @staticmethod
     def _default_operand_value(field: str) -> OperandValue:
-        return None if field == "pred" or field.startswith("ps") else 0
+        return None if field == "pred" or field.startswith("ps") or field == "ss" else 0
 
     @staticmethod
     def _infer_operand_field(token: str, counts: dict[str, int]) -> str:
@@ -267,6 +299,189 @@ class BundleParser:
                 field = f"imm{counts['imm']}"
             inferred[field] = value
         return inferred
+
+    @staticmethod
+    def _coerce_reg(token: OperandValue) -> str:
+        return token if isinstance(token, str) else ""
+
+    @staticmethod
+    def _parse_int_like(token: OperandValue) -> int | None:
+        if token is None:
+            return None
+        if isinstance(token, bool):
+            return int(token)
+        if isinstance(token, int):
+            return token
+        if isinstance(token, float):
+            return int(token)
+        if not isinstance(token, str):
+            return None
+        text = token.strip()
+        if not text:
+            return None
+        if text.startswith("ss="):
+            text = text.split("=", 1)[1].strip()
+        if text.startswith("$"):
+            text = text[1:]
+        if text.startswith("-0x"):
+            return -int(text[3:], 16)
+        if text.startswith("0x"):
+            return int(text, 16)
+        if text.isdigit() or (text.startswith("-") and text[1:].isdigit()):
+            return int(text)
+        return None
+
+    @classmethod
+    def _coerce_int_or_token(cls, token: OperandValue, default: int = 0) -> OperandValue:
+        if token is None:
+            return default
+        parsed = cls._parse_int_like(token)
+        return parsed if parsed is not None else token
+
+    @classmethod
+    def _coerce_int_or_default(cls, token: OperandValue, default: int = 0) -> int:
+        parsed = cls._parse_int_like(token)
+        return parsed if parsed is not None else default
+
+    @classmethod
+    def _coerce_address(cls, token: OperandValue) -> AddressOperand:
+        if token is None:
+            return 0
+        if isinstance(token, int):
+            return token
+        if isinstance(token, str):
+            text = token.strip()
+            if "+" in text:
+                reg, offset = text.split("+", 1)
+                reg = reg.strip()
+                parsed_offset = cls._parse_int_like(offset.strip())
+                if reg.startswith("s") and parsed_offset is not None:
+                    return (reg, parsed_offset)
+            parsed = cls._parse_int_like(text)
+            if parsed is not None:
+                return parsed
+            if text.startswith("s"):
+                return text
+            return text
+        return 0
+
+    @classmethod
+    def _coerce_index(cls, token: OperandValue) -> int:
+        parsed = cls._parse_int_like(token)
+        return parsed if parsed is not None else -1
+
+    @classmethod
+    def _coerce_dims(cls, token: OperandValue | list[int]) -> list[int]:
+        if isinstance(token, list):
+            dims: list[int] = []
+            for value in token:
+                parsed = cls._parse_int_like(value)
+                if parsed is not None:
+                    dims.append(parsed)
+            return dims
+        return []
+
+    @classmethod
+    def _collect_call_args(cls, args: dict[str, OperandValue]) -> list[OperandValue]:
+        values: list[OperandValue] = []
+        i = 1
+        while f"rs{i}" in args:
+            token = args[f"rs{i}"]
+            parsed = cls._parse_int_like(token)
+            values.append(parsed if parsed is not None else token)
+            i += 1
+        return values
+
+    @classmethod
+    def _build_slot_params(
+        cls,
+        slot: BundleSlotType,
+        opcode: str,
+        dest_reg: str,
+        args: dict[str, OperandValue] | None,
+        order: int = 0,
+    ) -> SlotParams:
+        args = dict(args or {})
+        pred_token = args.get("pred")
+        pred = pred_token if isinstance(pred_token, str) and pred_token else None
+        base_kwargs = {
+            "opcode": opcode,
+            "valid": True,
+            "vd_reg": dest_reg or "",
+            "order": int(order),
+            "pred": pred,
+            "predication": pred is not None,
+            "has_imm1": "imm1" in args,
+            "has_rs1": "rs1" in args,
+        }
+
+        if slot == BundleSlotType.MXU:
+            return MXUSlotParams(
+                **base_kwargs,
+                vs1_reg=cls._coerce_reg(args.get("vs1")),
+                vm_reg=cls._coerce_reg(args.get("vm1")),
+            )
+        if slot == BundleSlotType.XLU:
+            return XLUSlotParams(
+                **base_kwargs,
+                vs1_reg=cls._coerce_int_or_token(args.get("vs1"), 0),
+                rs1_reg=cls._coerce_int_or_token(args.get("rs1"), 0),
+                immediate=cls._coerce_int_or_token(args.get("imm1"), 0),
+                immediate2=cls._coerce_int_or_token(args.get("imm2"), 0),
+            )
+        if slot == BundleSlotType.VALU:
+            return VALUSlotParams(
+                **base_kwargs,
+                vs1_reg=cls._coerce_int_or_token(args.get("vs1"), 0),
+                vs2_reg=cls._coerce_int_or_token(args.get("vs2"), 0),
+                vm_reg=cls._coerce_reg(args.get("vm1")),
+                vs1_imm=cls._coerce_int_or_token(args.get("imm1"), 0),
+                vs2_imm=cls._coerce_int_or_token(args.get("imm2"), 0),
+            )
+        if slot == BundleSlotType.EUP:
+            return EUPParams(
+                **base_kwargs,
+                vs1_reg=cls._coerce_reg(args.get("vs1")),
+            )
+        if slot == BundleSlotType.LOAD:
+            ss_token = args.get("ss")
+            return LOADParams(
+                **base_kwargs,
+                address=cls._coerce_address(args.get("addr")),
+                sublane_mask=cls._coerce_int_or_default(args.get("sm"), 255),
+                sublane_stride=(
+                    cls._coerce_int_or_default(ss_token, 0) if ss_token is not None else None
+                ),
+            )
+        if slot == BundleSlotType.STORE:
+            return STOREParams(
+                **base_kwargs,
+                address=cls._coerce_address(args.get("addr")),
+                sublane_mask=cls._coerce_int_or_default(args.get("sm"), 255),
+                sublane_stride=cls._coerce_int_or_default(args.get("ss"), 0),
+                vs1_reg=cls._coerce_reg(args.get("vs1")),
+                vm_reg=cls._coerce_reg(args.get("vm1")),
+            )
+
+        return SALUSlotParams(
+            **base_kwargs,
+            immediate=cls._coerce_int_or_token(args.get("imm1"), 0),
+            immediate2=cls._coerce_int_or_token(args.get("imm2"), 0),
+            rs1_reg=cls._coerce_int_or_token(args.get("rs1"), 0),
+            rs2_reg=cls._coerce_int_or_token(args.get("rs2"), 0),
+            address=cls._coerce_address(args.get("addr")),
+            sync_flag=cls._coerce_int_or_default(args.get("sync"), 0),
+            ps1_reg=cls._coerce_reg(args.get("ps1")),
+            ps2_reg=cls._coerce_reg(args.get("ps2")),
+            target=cls._coerce_int_or_default(args.get("target"), 0),
+            call_args=cls._collect_call_args(args) if opcode == "inlined_call" else [],
+            callee=cls._coerce_reg(args.get("callee")),
+            kernel_program=cls._coerce_reg(args.get("kernel_program")),
+            operand_index=cls._coerce_index(args.get("operand_index")),
+            operand_kind=cls._coerce_reg(args.get("operand_kind")),
+            operand_dtype=cls._coerce_reg(args.get("operand_dtype")),
+            operand_dims=cls._coerce_dims(args.get("operand_dims")),
+        )
 
     # --- File discovery ---
 
@@ -624,7 +839,7 @@ class BundleParser:
             a = value
             alloc_id = normalize_alloc_id(a)
             if alloc_id in symbol_table:
-                result[key] = str(symbol_table[alloc_id].base_address)
+                result[key] = int(symbol_table[alloc_id].base_address)
             elif re.match(r"^#allocation\d+(?:_[A-Za-z0-9]+)?\+-?\d+$", a):
                 alloc_id, offset_str = a.rsplit("+", 1)
                 alloc_id = normalize_alloc_id(alloc_id)
@@ -633,7 +848,7 @@ class BundleParser:
                 scaled = base + (offset << 9)  # common LLO address-unit encoding
                 unscaled = base + offset
                 if offset < 0:
-                    result[key] = str(unscaled)
+                    result[key] = int(unscaled)
                     continue
                 if alloc_id in symbol_table:
                     alloc = symbol_table[alloc_id]
@@ -642,13 +857,13 @@ class BundleParser:
                     scaled_in_bounds = lo <= scaled < hi
                     unscaled_in_bounds = lo <= unscaled < hi
                     if unscaled_in_bounds and not scaled_in_bounds:
-                        result[key] = str(unscaled)
+                        result[key] = int(unscaled)
                     elif scaled_in_bounds and not unscaled_in_bounds:
-                        result[key] = str(scaled)
+                        result[key] = int(scaled)
                     else:
-                        result[key] = str(scaled)
+                        result[key] = int(scaled)
                 else:
-                    result[key] = str(scaled)
+                    result[key] = int(scaled)
             else:
                 result[key] = a
         return result
@@ -852,6 +1067,85 @@ class BundleParser:
                 instr.args = self._resolve_args(instr.args, symbol_table)
         return instructions
 
+    @staticmethod
+    def _mxu_slot_from_opcode(opcode: str) -> str | None:
+        for i in range(4):
+            if f".mxu{i}" in opcode:
+                return f"mxu{i}"
+        return None
+
+    @staticmethod
+    def _xlu_slot_from_opcode(opcode: str) -> str | None:
+        for i in range(3):
+            if f".xlu{i}" in opcode:
+                return f"xlu{i}"
+        return None
+
+    @classmethod
+    def _slot_field_for_instruction(
+        cls,
+        instr: Instruction,
+        counters: dict[BundleSlotType, int],
+    ) -> tuple[str, BundleSlotType]:
+        opcode = instr.opcode
+
+        mxu_slot = cls._mxu_slot_from_opcode(opcode)
+        if mxu_slot is not None:
+            return mxu_slot, BundleSlotType.MXU
+
+        xlu_slot = cls._xlu_slot_from_opcode(opcode)
+        if xlu_slot is not None:
+            return xlu_slot, BundleSlotType.XLU
+
+        op_spec = IsaSpec.operations.get(opcode)
+        slot_type = op_spec.slot_type if op_spec is not None else BundleSlotType.SALU
+        slot_fields = cls._SLOT_FIELDS_BY_TYPE.get(slot_type)
+        if slot_fields is None:
+            raise ValueError(f"Unsupported slot type for opcode {opcode}: {slot_type}")
+        slot_index = counters.get(slot_type, 0)
+        counters[slot_type] = slot_index + 1
+        if slot_index >= len(slot_fields):
+            return slot_fields[-1], slot_type
+        return slot_fields[slot_index], slot_type
+
+    @classmethod
+    def _append_slot_instruction(
+        cls,
+        bundle: InstructionBundle,
+        slot_field: str,
+        slot_type: BundleSlotType,
+        instr: Instruction,
+        order: int,
+    ) -> None:
+        if instr.opcode not in IsaSpec.operations:
+            return
+        op_payload = cls._build_slot_params(
+            slot=slot_type,
+            opcode=instr.opcode,
+            dest_reg=instr.dest_reg,
+            args=instr.args,
+            order=order,
+        )
+        if not getattr(bundle, slot_field).valid:
+            setattr(bundle, slot_field, op_payload)
+            return
+        # Designated slot full: try other slots of the same type only
+        slot_fields = cls._SLOT_FIELDS_BY_TYPE.get(slot_type)
+        if slot_fields:
+            for field_name in slot_fields:
+                if not getattr(bundle, field_name).valid:
+                    setattr(bundle, field_name, op_payload)
+                    return
+        bundle.overflow_slots.append(op_payload)
+
+    def _build_instruction_bundle(self, address: int, instructions: list[Instruction]) -> InstructionBundle:
+        bundle = InstructionBundle(address=address)
+        counters: dict[BundleSlotType, int] = {}
+        for order, instr in enumerate(instructions):
+            slot_field, slot_type = self._slot_field_for_instruction(instr, counters)
+            self._append_slot_instruction(bundle, slot_field, slot_type, instr, order)
+        return bundle
+
     # --- Program parsing ---
 
     def _iter_bundle_payloads(self, partial_path: Path):
@@ -966,8 +1260,6 @@ class BundleParser:
         bundles: dict[int, InstructionBundle] = {}
         for addr, payload in self._iter_bundle_payloads(partial_path):
             self._collect_operands_into_symbol_table(payload, symbol_table)
-            bundles[addr] = InstructionBundle(
-                address=addr,
-                instructions=self.parse_bundle(payload, symbol_table),
-            )
+            instructions = self.parse_bundle(payload, symbol_table)
+            bundles[addr] = self._build_instruction_bundle(addr, instructions)
         return symbol_table, dict(sorted(bundles.items(), key=lambda item: item[0]))

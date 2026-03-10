@@ -1,0 +1,68 @@
+= control target key start
+LH: loop header
+LB: loop body
+LE: loop exit
+PB: predicated region body
+PF: predicated region fallthrough
+CT: control target
+= control target key end
+
+     0   :  { %2 = vsyncpa [#allocation2], 0  ;;  %s194_s0 = inlined_call_operand.hbm [shape: f32[16384], index: 0, kind: input, shape index: {}] /* operand 0 */  ;;  %s195_s1 = inlined_call_operand.hbm [shape: f32[32,512], index: 1, kind: output, shape index: {}] /* operand 1 */ } /* entry bundle: %reshape.2 = reshape(%Arg_0.1) */
+   0x1   :  { %3 = vsyncpa [#allocation1], 0  ;;  %s7_s0 = sshll.u32 %s194_s0, 4  ;;  %s176_s8 = smov [#allocation3] /* materialized constant */  ;;  %s8_s0 = int_to_ptr.hbm [resolvable:$true] %s7_s0 }
+   0x2   :  { %s9_s9 = sshll.u32 %s176_s8, 4  ;;  %s10_s9 = int_to_ptr.vmem [resolvable:$true] %s9_s9 }
+   0x3   :  { %12 = dma.hbm_to_vmem [thread:$0]  /*hbm=*/%s8_s0, /*size_in_granules=*/2048, /*vmem=*/%s10_s9, /*dst_syncflagno=*/[#allocation1] /* 
+base_bounds: (128)
+dynamic_base_bounds: (128)
+window_bounds: (128)
+iteration_bounds: (1)
+strides: (128)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+   0x4   :  { %172 = dma.done.wait [#allocation1], 2048 /* pipeline-emitter-dma-wait */ }
+   0x5   :  { %173 = vsyncadd [#allocation1], 4294965248  ;;  %v15_v0 = vld [vmem:[#allocation3] sm:$0xff] /* (strided) load 0000:00, stride: 1, sublanes: 8 */  ;;  %v20_v1 = vld [vmem:[#allocation3 + $0x8] sm:$0xff] /* (strided) load 0008:00, stride: 1, sublanes: 8 */  ;;  %s177_s10 = smov [#allocation0] /* materialized constant */  ;;  %s114_s1 = sshll.u32 %s195_s1, 4  ;;  %s115_s1 = int_to_ptr.hbm [resolvable:$true] %s114_s1 }
+   0x6   :  { %16 = vst [vmem:[#allocation0] ss:$8 sm:$0xf] /*vst_source=*/%v15_v0 /* (strided) store 0000:00, stride: 8, sublanes: 4 */  ;;  %v26_v2 = vld [vmem:[#allocation3 + $0x10] sm:$0xff] /* (strided) load 0010:00, stride: 1, sublanes: 8 */  ;;  %v32_v3 = vld [vmem:[#allocation3 + $0x18] sm:$0xff] /* (strided) load 0018:00, stride: 1, sublanes: 8 */  ;;  %v38_v4 = vld [vmem:[#allocation3 + $0x20] sm:$0xff] /* (strided) load 0020:00, stride: 1, sublanes: 8 */ }
+   0x7   :  { %18 = vst [vmem:[#allocation0 - $0x1f] ss:$8 sm:$0xf0] /*vst_source=*/%v15_v0 /* (strided) store 0001:00, stride: 8, sublanes: 4 */  ;;  %v44_v5 = vld [vmem:[#allocation3 + $0x28] sm:$0xff] /* (strided) load 0028:00, stride: 1, sublanes: 8 */  ;;  %v50_v6 = vld [vmem:[#allocation3 + $0x30] sm:$0xff] /* (strided) load 0030:00, stride: 1, sublanes: 8 */  ;;  %v56_v7 = vld [vmem:[#allocation3 + $0x38] sm:$0xff] /* (strided) load 0038:00, stride: 1, sublanes: 8 */ }
+   0x8   :  { %22 = vst [vmem:[#allocation0 + $0x2] ss:$8 sm:$0xf] /*vst_source=*/%v20_v1 /* (strided) store 0002:00, stride: 8, sublanes: 4 */  ;;  %v62_v8 = vld [vmem:[#allocation3 + $0x40] sm:$0xff] /* (strided) load 0040:00, stride: 1, sublanes: 8 */  ;;  %v68_v9 = vld [vmem:[#allocation3 + $0x48] sm:$0xff] /* (strided) load 0048:00, stride: 1, sublanes: 8 */  ;;  %v74_v10 = vld [vmem:[#allocation3 + $0x50] sm:$0xff] /* (strided) load 0050:00, stride: 1, sublanes: 8 */ }
+   0x9   :  { %24 = vst [vmem:[#allocation0 - $0x1d] ss:$8 sm:$0xf0] /*vst_source=*/%v20_v1 /* (strided) store 0003:00, stride: 8, sublanes: 4 */  ;;  %v80_v11 = vld [vmem:[#allocation3 + $0x58] sm:$0xff] /* (strided) load 0058:00, stride: 1, sublanes: 8 */  ;;  %v86_v12 = vld [vmem:[#allocation3 + $0x60] sm:$0xff] /* (strided) load 0060:00, stride: 1, sublanes: 8 */  ;;  %v92_v13 = vld [vmem:[#allocation3 + $0x68] sm:$0xff] /* (strided) load 0068:00, stride: 1, sublanes: 8 */ }
+   0xa   :  { %28 = vst [vmem:[#allocation0 + $0x4] ss:$8 sm:$0xf] /*vst_source=*/%v26_v2 /* (strided) store 0004:00, stride: 8, sublanes: 4 */  ;;  %v98_v14 = vld [vmem:[#allocation3 + $0x70] sm:$0xff] /* (strided) load 0070:00, stride: 1, sublanes: 8 */  ;;  %s112_s11 = sshll.u32 %s177_s10, 4  ;;  %v104_v15 = vld [vmem:[#allocation3 + $0x78] sm:$0xff] /* (strided) load 0078:00, stride: 1, sublanes: 8 */  ;;  %s113_s11 = int_to_ptr.vmem [resolvable:$true] %s112_s11 }
+   0xb   :  { %30 = vst [vmem:[#allocation0 - $0x1b] ss:$8 sm:$0xf0] /*vst_source=*/%v26_v2 /* (strided) store 0005:00, stride: 8, sublanes: 4 */ }
+   0xc   :  { %34 = vst [vmem:[#allocation0 + $0x6] ss:$8 sm:$0xf] /*vst_source=*/%v32_v3 /* (strided) store 0006:00, stride: 8, sublanes: 4 */ }
+   0xd   :  { %36 = vst [vmem:[#allocation0 - $0x19] ss:$8 sm:$0xf0] /*vst_source=*/%v32_v3 /* (strided) store 0007:00, stride: 8, sublanes: 4 */ }
+   0xe   :  { %40 = vst [vmem:[#allocation0 + $0x20] ss:$8 sm:$0xf] /*vst_source=*/%v38_v4 /* (strided) store 0020:00, stride: 8, sublanes: 4 */ }
+   0xf   :  { %42 = vst [vmem:[#allocation0 + $0x1] ss:$8 sm:$0xf0] /*vst_source=*/%v38_v4 /* (strided) store 0021:00, stride: 8, sublanes: 4 */ }
+  0x10   :  { %46 = vst [vmem:[#allocation0 + $0x22] ss:$8 sm:$0xf] /*vst_source=*/%v44_v5 /* (strided) store 0022:00, stride: 8, sublanes: 4 */ }
+  0x11   :  { %48 = vst [vmem:[#allocation0 + $0x3] ss:$8 sm:$0xf0] /*vst_source=*/%v44_v5 /* (strided) store 0023:00, stride: 8, sublanes: 4 */ }
+  0x12   :  { %52 = vst [vmem:[#allocation0 + $0x24] ss:$8 sm:$0xf] /*vst_source=*/%v50_v6 /* (strided) store 0024:00, stride: 8, sublanes: 4 */ }
+  0x13   :  { %54 = vst [vmem:[#allocation0 + $0x5] ss:$8 sm:$0xf0] /*vst_source=*/%v50_v6 /* (strided) store 0025:00, stride: 8, sublanes: 4 */ }
+  0x14   :  { %58 = vst [vmem:[#allocation0 + $0x26] ss:$8 sm:$0xf] /*vst_source=*/%v56_v7 /* (strided) store 0026:00, stride: 8, sublanes: 4 */ }
+  0x15   :  { %60 = vst [vmem:[#allocation0 + $0x7] ss:$8 sm:$0xf0] /*vst_source=*/%v56_v7 /* (strided) store 0027:00, stride: 8, sublanes: 4 */ }
+  0x16   :  { %64 = vst [vmem:[#allocation0 + $0x40] ss:$8 sm:$0xf] /*vst_source=*/%v62_v8 /* (strided) store 0040:00, stride: 8, sublanes: 4 */ }
+  0x17   :  { %66 = vst [vmem:[#allocation0 + $0x21] ss:$8 sm:$0xf0] /*vst_source=*/%v62_v8 /* (strided) store 0041:00, stride: 8, sublanes: 4 */ }
+  0x18   :  { %70 = vst [vmem:[#allocation0 + $0x42] ss:$8 sm:$0xf] /*vst_source=*/%v68_v9 /* (strided) store 0042:00, stride: 8, sublanes: 4 */ }
+  0x19   :  { %72 = vst [vmem:[#allocation0 + $0x23] ss:$8 sm:$0xf0] /*vst_source=*/%v68_v9 /* (strided) store 0043:00, stride: 8, sublanes: 4 */ }
+  0x1a   :  { %76 = vst [vmem:[#allocation0 + $0x44] ss:$8 sm:$0xf] /*vst_source=*/%v74_v10 /* (strided) store 0044:00, stride: 8, sublanes: 4 */ }
+  0x1b   :  { %78 = vst [vmem:[#allocation0 + $0x25] ss:$8 sm:$0xf0] /*vst_source=*/%v74_v10 /* (strided) store 0045:00, stride: 8, sublanes: 4 */ }
+  0x1c   :  { %82 = vst [vmem:[#allocation0 + $0x46] ss:$8 sm:$0xf] /*vst_source=*/%v80_v11 /* (strided) store 0046:00, stride: 8, sublanes: 4 */ }
+  0x1d   :  { %84 = vst [vmem:[#allocation0 + $0x27] ss:$8 sm:$0xf0] /*vst_source=*/%v80_v11 /* (strided) store 0047:00, stride: 8, sublanes: 4 */ }
+  0x1e   :  { %88 = vst [vmem:[#allocation0 + $0x60] ss:$8 sm:$0xf] /*vst_source=*/%v86_v12 /* (strided) store 0060:00, stride: 8, sublanes: 4 */ }
+  0x1f   :  { %90 = vst [vmem:[#allocation0 + $0x41] ss:$8 sm:$0xf0] /*vst_source=*/%v86_v12 /* (strided) store 0061:00, stride: 8, sublanes: 4 */ }
+  0x20   :  { %94 = vst [vmem:[#allocation0 + $0x62] ss:$8 sm:$0xf] /*vst_source=*/%v92_v13 /* (strided) store 0062:00, stride: 8, sublanes: 4 */ }
+  0x21   :  { %96 = vst [vmem:[#allocation0 + $0x43] ss:$8 sm:$0xf0] /*vst_source=*/%v92_v13 /* (strided) store 0063:00, stride: 8, sublanes: 4 */ }
+  0x22   :  { %100 = vst [vmem:[#allocation0 + $0x64] ss:$8 sm:$0xf] /*vst_source=*/%v98_v14 /* (strided) store 0064:00, stride: 8, sublanes: 4 */ }
+  0x23   :  { %102 = vst [vmem:[#allocation0 + $0x45] ss:$8 sm:$0xf0] /*vst_source=*/%v98_v14 /* (strided) store 0065:00, stride: 8, sublanes: 4 */ }
+  0x24   :  { %106 = vst [vmem:[#allocation0 + $0x66] ss:$8 sm:$0xf] /*vst_source=*/%v104_v15 /* (strided) store 0066:00, stride: 8, sublanes: 4 */ }
+  0x25   :  { %108 = vst [vmem:[#allocation0 + $0x47] ss:$8 sm:$0xf0] /*vst_source=*/%v104_v15 /* (strided) store 0067:00, stride: 8, sublanes: 4 */ }
+  0x26   :  { %117 = dma.vmem_to_hbm [thread:$0]  /*vmem=*/%s113_s11, /*size_in_granules=*/2048, /*hbm=*/%s115_s1, /*dst_syncflagno=*/[#allocation2] /* 
+base_bounds: (128)
+dynamic_base_bounds: (128)
+window_bounds: (128)
+iteration_bounds: (1)
+strides: (128)
+pad_low: (0)
+pad_high: (0)
+element_size_in_bytes: 512 */ }
+  0x27   :  { %174 = dma.done.wait [#allocation2], 2048 /* pipeline-emitter-dma-wait */ }
+  0x28   :  { %175 = vsyncadd [#allocation2], 4294965248 }
+  0x29   :  { %120 = vsyncpa [#allocation2], 1 }
+  0x2a   :  { %121 = vsyncpa [#allocation1], 1 } /* exit bundle: %reshape.2 = reshape(%Arg_0.1) */

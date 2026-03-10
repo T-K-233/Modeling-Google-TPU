@@ -34,6 +34,19 @@ _DTYPE_BYTES: dict[str, int] = {
     "s8": 1,
     "u8": 1,
 }
+_BUNDLE_SLOT_FIELDS = (
+    "mxu0", "mxu1", "mxu2", "mxu3",
+    "xlu0", "xlu1", "xlu2",
+    "valu0", "valu1", "valu2", "valu3",
+    "eup",
+    "load0", "load1", "load2",
+    "store0",
+    "salu0", "salu1",
+)
+
+
+def _iter_valid_slots(bundle):
+    return bundle.iter_valid_slots()
 
 
 @dataclass(frozen=True)
@@ -92,11 +105,8 @@ def _parse_hlo_output_nbytes(hlo_path: Path) -> int:
     return _shape_nbytes(_canonical_shape(m.group("out")))
 
 
-def _count_call_args(args: dict[str, object]) -> int:
-    count = 0
-    while f"rs{count + 1}" in args:
-        count += 1
-    return count
+def _count_call_args(args: list[object]) -> int:
+    return len(args)
 
 
 def _kernel_pattern_to_regex(pattern: str) -> str:
@@ -208,13 +218,14 @@ def _collect_kernel_metadata(llo_dir: Path, parser: BundleParser) -> dict[str, l
         operand_kinds: dict[int, str] = {}
         operand_sizes: dict[int, int] = {}
         for bundle in bundles.values():
-            for instr in bundle.instructions:
-                if not instr.opcode.startswith("inlined_call_operand."):
+            for instr in _iter_valid_slots(bundle):
+                opcode = str(instr.opcode)
+                if not opcode.startswith("inlined_call_operand."):
                     continue
-                idx = instr.args.get("operand_index")
-                if not isinstance(idx, int):
+                idx = instr.operand_index
+                if idx < 0:
                     continue
-                operand_kinds[idx] = str(instr.args.get("operand_kind", ""))
+                operand_kinds[idx] = str(instr.operand_kind)
                 sym = symbol_table.get(f"#operand{idx}")
                 if sym is not None:
                     operand_sizes[idx] = int(sym.size)
@@ -281,15 +292,15 @@ def _discover_used_files_from_tlp(llo_dir: Path) -> set[str]:
         _symbol_table, bundles = parser.parse_program(tlp_stem)
         call_instructions = []
         for bundle in bundles.values():
-            for instr in bundle.instructions:
-                if instr.opcode == "inlined_call":
+            for instr in _iter_valid_slots(bundle):
+                if str(instr.opcode) == "inlined_call":
                     call_instructions.append(instr)
 
         expected_output_nbytes = _parse_hlo_output_nbytes(llo_dir / f"{tlp_id}-hlo.txt")
         total_calls = len(call_instructions)
         for i, instr in enumerate(call_instructions):
-            callee = str(instr.args.get("callee", ""))
-            arg_count = _count_call_args(instr.args)
+            callee = str(instr.callee)
+            arg_count = _count_call_args(instr.call_args)
             expected = expected_output_nbytes if i == total_calls - 1 else None
             resolved = _resolve_kernel_candidate(
                 tlp_id=tlp_id,

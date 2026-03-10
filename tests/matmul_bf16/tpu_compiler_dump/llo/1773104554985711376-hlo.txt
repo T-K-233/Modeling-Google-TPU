@@ -1,0 +1,28 @@
+HloModule jit_matmul_bf16, is_scheduled=true, entry_computation_layout={(f32[8,8]{1,0:T(8,128)}, f32[8,8]{1,0:T(8,128)})->f32[8,8]{1,0:T(8,128)}}, allow_spmd_sharding_propagation_to_parameters={true,true}, allow_spmd_sharding_propagation_to_output={true}
+
+%bitcast_fusion (bitcast_input: f32[8,8]) -> f32[8,8] {
+  %bitcast_input = f32[8,8]{1,0:T(8,128)S(1)} parameter(0)
+  ROOT %bitcast = f32[8,8]{1,0:T(8,128)} bitcast(%bitcast_input)
+}
+
+%bitcast_fusion.1 (bitcast_input.1: f32[8,8]) -> f32[8,8] {
+  %bitcast_input.1 = f32[8,8]{1,0:T(8,128)} parameter(0)
+  ROOT %bitcast.1 = f32[8,8]{1,0:T(8,128)} bitcast(%bitcast_input.1)
+}
+
+%fused_computation (param_0: f32[8,8], param_1: f32[8,8]) -> f32[8,8] {
+  %param_0 = f32[8,8]{1,0:T(8,128)S(1)} parameter(0)
+  %fusion.1 = f32[8,8]{1,0:T(8,128)} fusion(%param_0), kind=kLoop, calls=%bitcast_fusion
+  %param_1 = f32[8,8]{1,0:T(8,128)} parameter(1)
+  %fusion.2 = f32[8,8]{1,0:T(8,128)} fusion(%param_1), kind=kLoop, calls=%bitcast_fusion.1
+  ROOT %convolution.1 = f32[8,8]{1,0:T(8,128)} convolution(%fusion.1, %fusion.2), dim_labels=bf_io->bf, metadata={op_name="jit(matmul_bf16)/jit(main)/matmul_bf16/dot_general" source_file="/tmp/ipython-input-40821003.py" source_line=5}
+}
+
+ENTRY %main.4 (Arg_0.1: f32[8,8], Arg_1.2: f32[8,8]) -> f32[8,8] {
+  %Arg_0.1 = f32[8,8]{1,0:T(8,128)} parameter(0), metadata={op_name="x"}
+  %copy-start = (f32[8,8]{1,0:T(8,128)S(1)}, f32[8,8]{1,0:T(8,128)}, u32[]{:S(2)}) copy-start(%Arg_0.1), cross_program_prefetch_index=0
+  %Arg_1.2 = f32[8,8]{1,0:T(8,128)} parameter(1), metadata={op_name="y"}
+  %copy-done = f32[8,8]{1,0:T(8,128)S(1)} copy-done(%copy-start)
+  ROOT %fusion = f32[8,8]{1,0:T(8,128)} fusion(%copy-done, %Arg_1.2), kind=kOutput, calls=%fused_computation, metadata={op_name="jit(matmul_bf16)/jit(main)/matmul_bf16/dot_general" source_file="/tmp/ipython-input-40821003.py" source_line=5}
+}
+
